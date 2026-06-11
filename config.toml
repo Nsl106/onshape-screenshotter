@@ -1,0 +1,22 @@
+# Onshape Progressor configuration — see README for how to find these IDs.
+#
+# Edit this file to point the tool at your Onshape document(s). Everything here
+# is safe to commit: it contains no secrets, only public document identifiers and
+# rendering preferences. Your API keys live in GitHub Actions secrets, never here.
+
+[settings]
+image_width  = 1024           # px; Onshape's default is 128, far too small for a timelapse
+image_height = 1024           # px
+view = "isometric"            # a named view, or 12 space-separated numbers for a view matrix
+backfill_interval_hours = 24  # how often to sample when reconstructing history (24 = one frame/day)
+timelapse_fps = 10            # frames per second in the rendered timelapse video
+keepalive = true              # commit a tiny no-op monthly so GitHub doesn't disable the cron after 60 idle days
+
+# One [[targets]] block per part studio or assembly you want to track.
+# Add as many as you like; each gets its own frames/<name>/ directory and state file.
+[[targets]]
+name = "robot-assembly"       # used as the frame directory name: frames/robot-assembly/
+document_id = ""              # the "documents/<id>" segment of the Onshape URL
+workspace_id = ""             # the "w/<id>" segment of the Onshape URL
+element_id = ""               # the "e/<id>" segment of the Onshape URL (the specific tab)
+element_type = "assembly"     # "assembly" or "partstudio"
