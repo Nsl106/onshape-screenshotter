@@ -41,11 +41,11 @@ Fork — forks can't be made private and stay linked to this repo.)
 
 ### 2. Get your Onshape API keys
 
-1. Go to the Onshape developer portal: <https://dev-portal.onshape.com/keys>.
-2. Click **Create new API key**. Tick the **Read** permissions (this tool only
-   reads — it never modifies your CAD).
-3. Copy the **Access key** and **Secret key** somewhere safe for the next step.
-   The secret key is shown only once.
+1. Go to <https://cad.onshape.com/user/developer/apiKeys/createApiKey>.
+2. Tick **“Application can read your documents”** — that's the only permission this
+   tool needs; it never modifies your CAD.
+3. Click **Create API key**, then copy the **Access key** and **Secret key**
+   somewhere safe for the next step. The secret key is shown only once.
 
 > Some Onshape Education plans restrict API keys. If the portal won't let you make a
 > key, check with your Onshape account admin that your plan allows API access.
