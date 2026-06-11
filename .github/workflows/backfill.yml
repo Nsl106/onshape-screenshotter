@@ -1,0 +1,61 @@
+# One-time history reconstruction. Run manually (Actions tab -> Backfill -> Run).
+# Tick "dry_run" first to preview how many frames it would render before spending
+# API quota. Kept out of the hourly cron because it can be long and rate-limited.
+name: Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview the plan without rendering or committing anything"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install .
+
+      - name: Backfill frames from history
+        env:
+          ONSHAPE_ACCESS_KEY: ${{ secrets.ONSHAPE_ACCESS_KEY }}
+          ONSHAPE_SECRET_KEY: ${{ secrets.ONSHAPE_SECRET_KEY }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python -m progressor.backfill --dry-run
+          else
+            python -m progressor.backfill
+          fi
+
+      - name: Commit and push backfilled frames
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add README.md
+          [ -d frames ] && git add frames
+          [ -d state ] && git add state
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: backfill frames from history"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push
+          fi
