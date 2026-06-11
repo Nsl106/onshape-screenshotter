@@ -4,17 +4,31 @@ This module is the boundary between a team-edited TOML file and the rest of the
 pipeline. It parses the file, applies defaults, and validates every field with
 error messages aimed at a non-programmer ("fix X in config.toml"), failing fast
 before any network call or file write happens.
+
+A target is supplied as a single pasted Onshape URL; this module parses the
+document, workspace, and element IDs out of it. The element's type (assembly vs.
+part studio) and human-friendly name are NOT in the URL — they are fetched from
+the API at runtime and cached in the per-element state file, so the team only ever
+has to paste a link.
 """
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-# Allowed values for a target's ``element_type``. These map directly to the two
-# shaded-view endpoint families in the Onshape API (part studios vs. assemblies).
-ELEMENT_TYPES = ("assembly", "partstudio")
+# A standard Onshape document URL embeds three IDs and a workspace/version/microversion
+# selector, e.g.
+#   https://cad.onshape.com/documents/{did}/w/{wid}/e/{eid}
+# We require the workspace ("w") form because the forward job tracks the live
+# workspace; version ("v") and microversion ("m") links point at frozen snapshots.
+_ONSHAPE_URL_RE = re.compile(
+    r"/documents/(?P<did>[0-9A-Za-z]+)"
+    r"/(?P<wvm>[wvm])/(?P<wvmid>[0-9A-Za-z]+)"
+    r"/e/(?P<eid>[0-9A-Za-z]+)"
+)
 
 
 class ConfigError(Exception):
@@ -27,21 +41,24 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class Target:
-    """One Onshape part studio or assembly to track.
+    """One Onshape part studio or assembly to track, parsed from a pasted URL.
+
+    The element id is the stable, collision-free key for this target: frames live
+    in ``frames/<element_id>/`` and change-detection state in
+    ``state/<element_id>.json``. The element's type and display name are fetched
+    from the API at runtime, not stored here.
 
     Attributes:
-        name: Directory-safe label; names ``frames/<name>/`` and ``state/<name>.json``.
-        document_id: The ``documents/<id>`` segment of the Onshape URL.
-        workspace_id: The ``w/<id>`` segment of the Onshape URL.
-        element_id: The ``e/<id>`` segment (the specific tab) of the Onshape URL.
-        element_type: ``"assembly"`` or ``"partstudio"``.
+        url: The original Onshape URL the team pasted (kept for error messages).
+        document_id: The ``documents/<id>`` segment of the URL.
+        workspace_id: The ``w/<id>`` segment of the URL.
+        element_id: The ``e/<id>`` segment (the specific tab) — the folder/state key.
     """
 
-    name: str
+    url: str
     document_id: str
     workspace_id: str
     element_id: str
-    element_type: str
 
 
 @dataclass(frozen=True)
@@ -80,26 +97,40 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "image_width": 1024,
     "image_height": 1024,
     "view": "isometric",
-    "backfill_interval_hours": 24,
+    "backfill_interval_hours": 1,
     "timelapse_fps": 10,
     "keepalive": True,
 }
 
 
-def _is_safe_name(name: str) -> bool:
-    """Return True if ``name`` is safe to use as a single directory component.
+def parse_onshape_url(url: str) -> tuple[str, str, str]:
+    """Parse an Onshape document URL into ``(document_id, workspace_id, element_id)``.
 
-    Rejects empty strings, path separators, ``..``, leading dots, and whitespace
-    so a target name can never escape ``frames/`` or collide with the filesystem.
+    Args:
+        url: A full Onshape URL of the form
+            ``https://cad.onshape.com/documents/<did>/w/<wid>/e/<eid>`` (query
+            string and trailing path allowed).
+
+    Raises:
+        ConfigError: if the URL doesn't contain the three IDs, or points at a
+            version/microversion (``/v/`` or ``/m/``) instead of a live workspace
+            (``/w/``). The message tells the team how to copy the right link.
     """
-    if not name or name != name.strip():
-        return False
-    if name in (".", ".."):
-        return False
-    forbidden = set('/\\:*?"<>|')
-    if any(c in forbidden for c in name):
-        return False
-    return not name.startswith(".")
+    match = _ONSHAPE_URL_RE.search(url)
+    if not match:
+        raise ConfigError(
+            f"'{url}' is not a recognizable Onshape link. Open your part studio or "
+            "assembly in Onshape and copy the URL from the browser address bar — it "
+            "should look like "
+            "https://cad.onshape.com/documents/<id>/w/<id>/e/<id>"
+        )
+    if match.group("wvm") != "w":
+        raise ConfigError(
+            f"'{url}' points at a fixed version/microversion (/{match.group('wvm')}/), "
+            "not your live workspace. Copy the link while viewing the document in your "
+            "workspace, so the URL contains '/w/'."
+        )
+    return match.group("did"), match.group("wvmid"), match.group("eid")
 
 
 def _require_str(raw: dict, key: str, where: str) -> str:
@@ -149,28 +180,23 @@ def _parse_settings(raw: dict) -> Settings:
 
 
 def _parse_target(raw: dict, index: int) -> Target:
-    """Build one Target from a raw ``[[targets]]`` table."""
+    """Build one Target from a raw ``[[targets]]`` table containing a ``url``."""
     where = f"targets[{index}]"
     if not isinstance(raw, dict):
-        raise ConfigError(f"{where}: each target must be a table.")
-    name = _require_str(raw, "name", where)
-    if not _is_safe_name(name):
+        raise ConfigError(f"{where}: each target must be a table with a 'url'.")
+    url = _require_str(raw, "url", where)
+    unknown = set(raw) - {"url"}
+    if unknown:
         raise ConfigError(
-            f"{where}: name '{name}' is not a valid folder name. "
-            "Use letters, numbers, dashes or underscores; no slashes or spaces."
+            f"{where}: unexpected key(s) {sorted(unknown)}. A target only needs a "
+            "'url' — the element type and name are fetched from Onshape automatically."
         )
-    element_type = _require_str(raw, "element_type", where)
-    if element_type not in ELEMENT_TYPES:
-        raise ConfigError(
-            f"{where} ('{name}'): element_type must be one of "
-            f"{list(ELEMENT_TYPES)}, not '{element_type}'."
-        )
+    document_id, workspace_id, element_id = parse_onshape_url(url)
     return Target(
-        name=name,
-        document_id=_require_str(raw, "document_id", f"{where} ('{name}')"),
-        workspace_id=_require_str(raw, "workspace_id", f"{where} ('{name}')"),
-        element_id=_require_str(raw, "element_id", f"{where} ('{name}')"),
-        element_type=element_type,
+        url=url,
+        document_id=document_id,
+        workspace_id=workspace_id,
+        element_id=element_id,
     )
 
 
@@ -181,8 +207,9 @@ def parse_config(data: dict) -> Config:
     the filesystem.
 
     Raises:
-        ConfigError: on any missing/invalid field, duplicate target name, or empty
-            target list. The message names the field and how to fix it.
+        ConfigError: on any missing/invalid field, a target URL that names the same
+            element twice, or an empty target list. The message names the problem
+            and how to fix it.
     """
     settings = _parse_settings(data.get("settings", {}))
 
@@ -190,19 +217,19 @@ def parse_config(data: dict) -> Config:
     if not isinstance(raw_targets, list) or not raw_targets:
         raise ConfigError(
             "At least one [[targets]] entry is required. Add a [[targets]] block "
-            "with document_id, workspace_id, element_id and element_type."
+            "with a 'url' set to your Onshape document link."
         )
 
     targets = tuple(_parse_target(t, i) for i, t in enumerate(raw_targets))
 
     seen: set[str] = set()
     for t in targets:
-        if t.name in seen:
+        if t.element_id in seen:
             raise ConfigError(
-                f"Duplicate target name '{t.name}'. Each [[targets]] name must be "
-                "unique — it is used as the frame folder name."
+                f"Two targets point at the same Onshape element ({t.element_id}). "
+                "Each [[targets]] url must reference a different tab."
             )
-        seen.add(t.name)
+        seen.add(t.element_id)
 
     return Config(settings=settings, targets=targets)
 
@@ -222,7 +249,7 @@ def load_config(path: str | Path = "config.toml") -> Config:
     except FileNotFoundError as exc:
         raise ConfigError(
             f"Configuration file '{p}' not found. Copy the example config.toml and "
-            "fill in your document IDs."
+            "fill in your document URL(s)."
         ) from exc
     try:
         data = tomllib.loads(raw.decode("utf-8"))

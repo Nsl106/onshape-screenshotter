@@ -1,22 +1,29 @@
-# Onshape Progressor configuration — see README for how to find these IDs.
+# Onshape Progressor configuration — see README for a walkthrough.
 #
-# Edit this file to point the tool at your Onshape document(s). Everything here
-# is safe to commit: it contains no secrets, only public document identifiers and
-# rendering preferences. Your API keys live in GitHub Actions secrets, never here.
+# Your Onshape API keys are NOT here — they live in GitHub Actions secrets.
 
 [settings]
 image_width  = 1024           # px; Onshape's default is 128, far too small for a timelapse
 image_height = 1024           # px
 view = "isometric"            # a named view, or 12 space-separated numbers for a view matrix
-backfill_interval_hours = 24  # how often to sample when reconstructing history (24 = one frame/day)
+backfill_interval_hours = 1   # how often to sample when reconstructing history (1 = one frame/hour)
 timelapse_fps = 10            # frames per second in the rendered timelapse video
-keepalive = true              # commit a tiny no-op monthly so GitHub doesn't disable the cron after 60 idle days
+
+# keepalive: GitHub automatically DISABLES a scheduled workflow after 60 days with
+# no repo activity. During build season this never triggers (frames are committed
+# as your CAD changes), but in the quiet offseason it can. When true, the capture
+# workflow commits a tiny no-op file roughly monthly so the hourly job keeps running
+# untouched. Set false if you'd rather re-enable Actions by hand each January.
+keepalive = true
 
 # One [[targets]] block per part studio or assembly you want to track.
-# Add as many as you like; each gets its own frames/<name>/ directory and state file.
+# Just paste the Onshape URL from your browser's address bar — the document,
+# workspace, and element IDs are read from it, and the element's type and name are
+# fetched from Onshape automatically. Frames are stored under the element id, and the
+# README's "Tracked CAD" section is updated with each target's fetched name and a link.
 [[targets]]
-name = "robot-assembly"       # used as the frame directory name: frames/robot-assembly/
-document_id = ""              # the "documents/<id>" segment of the Onshape URL
-workspace_id = ""             # the "w/<id>" segment of the Onshape URL
-element_id = ""               # the "e/<id>" segment of the Onshape URL (the specific tab)
-element_type = "assembly"     # "assembly" or "partstudio"
+url = "https://cad.onshape.com/documents/REPLACE_DID/w/REPLACE_WID/e/REPLACE_EID"
+
+# Add more targets by copying the block above:
+# [[targets]]
+# url = "https://cad.onshape.com/documents/.../w/.../e/..."

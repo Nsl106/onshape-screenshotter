@@ -1,10 +1,16 @@
-"""Tests for config parsing and validation (no filesystem or network)."""
+"""Tests for config parsing, URL parsing, and validation (no filesystem or network)."""
 
 from __future__ import annotations
 
 import pytest
 
-from progressor.config import ConfigError, parse_config
+from progressor.config import ConfigError, parse_config, parse_onshape_url
+
+# A realistic Onshape workspace URL (24-hex IDs, as Onshape issues them).
+_URL = (
+    "https://cad.onshape.com/documents/aaaaaaaaaaaaaaaaaaaaaaaa"
+    "/w/bbbbbbbbbbbbbbbbbbbbbbbb/e/cccccccccccccccccccccccc"
+)
 
 
 def _valid_data() -> dict:
@@ -18,16 +24,37 @@ def _valid_data() -> dict:
             "timelapse_fps": 15,
             "keepalive": False,
         },
-        "targets": [
-            {
-                "name": "robot",
-                "document_id": "doc1",
-                "workspace_id": "ws1",
-                "element_id": "el1",
-                "element_type": "assembly",
-            }
-        ],
+        "targets": [{"url": _URL}],
     }
+
+
+# --- URL parsing ----------------------------------------------------------------
+
+
+def test_parse_url_extracts_three_ids() -> None:
+    did, wid, eid = parse_onshape_url(_URL)
+    assert did == "a" * 24
+    assert wid == "b" * 24
+    assert eid == "c" * 24
+
+
+def test_parse_url_tolerates_query_and_trailing_path() -> None:
+    did, wid, eid = parse_onshape_url(_URL + "?configuration=default")
+    assert (did, wid, eid) == ("a" * 24, "b" * 24, "c" * 24)
+
+
+def test_parse_url_rejects_version_link() -> None:
+    version_url = _URL.replace("/w/", "/v/")
+    with pytest.raises(ConfigError, match="live workspace"):
+        parse_onshape_url(version_url)
+
+
+def test_parse_url_rejects_garbage() -> None:
+    with pytest.raises(ConfigError, match="not a recognizable Onshape link"):
+        parse_onshape_url("https://example.com/whatever")
+
+
+# --- config validation ----------------------------------------------------------
 
 
 def test_valid_config_parses() -> None:
@@ -35,8 +62,11 @@ def test_valid_config_parses() -> None:
     assert cfg.settings.image_width == 800
     assert cfg.settings.keepalive is False
     assert len(cfg.targets) == 1
-    assert cfg.targets[0].name == "robot"
-    assert cfg.targets[0].element_type == "assembly"
+    t = cfg.targets[0]
+    assert t.url == _URL
+    assert t.document_id == "a" * 24
+    assert t.workspace_id == "b" * 24
+    assert t.element_id == "c" * 24
 
 
 def test_settings_defaults_applied_when_absent() -> None:
@@ -46,45 +76,45 @@ def test_settings_defaults_applied_when_absent() -> None:
     # Defaults mirror the shipped config.toml.
     assert cfg.settings.image_width == 1024
     assert cfg.settings.view == "isometric"
-    assert cfg.settings.backfill_interval_hours == 24
+    assert cfg.settings.backfill_interval_hours == 1
     assert cfg.settings.timelapse_fps == 10
     assert cfg.settings.keepalive is True
 
 
-def test_missing_required_target_field_raises() -> None:
+def test_missing_url_raises() -> None:
     data = _valid_data()
-    del data["targets"][0]["document_id"]
-    with pytest.raises(ConfigError, match="document_id"):
+    del data["targets"][0]["url"]
+    with pytest.raises(ConfigError, match="url"):
         parse_config(data)
 
 
-def test_empty_target_field_raises() -> None:
+def test_bad_url_raises() -> None:
     data = _valid_data()
-    data["targets"][0]["workspace_id"] = "   "
-    with pytest.raises(ConfigError, match="workspace_id"):
+    data["targets"][0]["url"] = "not-a-url"
+    with pytest.raises(ConfigError, match="Onshape link"):
         parse_config(data)
 
 
-def test_bad_element_type_raises() -> None:
+def test_unexpected_target_key_raises() -> None:
     data = _valid_data()
-    data["targets"][0]["element_type"] = "drawing"
-    with pytest.raises(ConfigError, match="element_type"):
+    data["targets"][0]["element_type"] = "assembly"
+    with pytest.raises(ConfigError, match="element type and name are fetched"):
         parse_config(data)
 
 
-def test_duplicate_names_raise() -> None:
+def test_duplicate_element_raises() -> None:
     data = _valid_data()
-    data["targets"].append(dict(data["targets"][0]))
-    with pytest.raises(ConfigError, match="Duplicate target name"):
+    data["targets"].append({"url": _URL})
+    with pytest.raises(ConfigError, match="same Onshape element"):
         parse_config(data)
 
 
-@pytest.mark.parametrize("bad_name", ["../escape", "a/b", "..", ".", "  ", ".hidden"])
-def test_unsafe_target_name_raises(bad_name: str) -> None:
+def test_distinct_elements_ok() -> None:
     data = _valid_data()
-    data["targets"][0]["name"] = bad_name
-    with pytest.raises(ConfigError):
-        parse_config(data)
+    other = _URL.replace("/e/" + "c" * 24, "/e/" + "d" * 24)
+    data["targets"].append({"url": other})
+    cfg = parse_config(data)
+    assert {t.element_id for t in cfg.targets} == {"c" * 24, "d" * 24}
 
 
 def test_no_targets_raises() -> None:
