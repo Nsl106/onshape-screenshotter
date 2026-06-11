@@ -73,9 +73,13 @@ def _backfill_target(
     result = BackfillResult(element_id=eid)
 
     meta = client.get_element_metadata(target)
-    history: list[Microversion] = list(
-        client.iter_document_history(target.document_id, target.workspace_id)
-    )
+    # Enumerating full history can be many sequential pages for an active document
+    # (Onshape caps the page size), so report progress instead of going silent.
+    history: list[Microversion] = []
+    for mv in client.iter_document_history(target.document_id, target.workspace_id):
+        history.append(mv)
+        if len(history) % 1000 == 0:
+            print(f"{eid}: …enumerated {len(history)} microversions", file=sys.stderr)
     if not history:
         result.note = "no history (document has no microversions yet)"
         return result
