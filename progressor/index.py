@@ -18,9 +18,7 @@ from .state import read_state, state_path
 START_MARKER = "<!-- targets:start -->"
 END_MARKER = "<!-- targets:end -->"
 
-_EMPTY_MESSAGE = (
-    "_No frames captured yet. Run the Capture or Backfill workflow to populate this._"
-)
+_EMPTY_MESSAGE = "_No frames captured yet. Run the Capture workflow to populate this._"
 
 
 def _label(display_name: str | None, document_name: str | None, element_id: str) -> str:

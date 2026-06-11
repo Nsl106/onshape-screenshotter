@@ -1,10 +1,10 @@
 """Frame file layout and first-writer-wins image writing.
 
 The committed ``frames/<element_id>/`` directory is the authoritative record of
-which slots are filled. Overlap between the forward job, backfill, and re-runs is
-prevented at the slot level: before rendering, a caller checks ``exists`` for the
-slot, and ``write_frame`` refuses to overwrite — so whoever writes a slot first
-wins and no API quota is spent re-rendering it. No network access.
+which slots are filled. Overlap between the capture job and re-runs is prevented at
+the slot level: before rendering, a caller checks ``exists`` for the slot, and
+``write_frame`` refuses to overwrite — so whoever writes a slot first wins and no
+API quota is spent re-rendering it. No network access.
 """
 
 from __future__ import annotations

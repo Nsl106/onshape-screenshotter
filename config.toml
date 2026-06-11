@@ -6,7 +6,6 @@
 image_width  = 1024           # px; Onshape's default is 128, far too small for a timelapse
 image_height = 1024           # px
 view = "isometric"            # a named view, or 12 space-separated numbers for a view matrix
-backfill_interval_hours = 1   # how often to sample when reconstructing history (1 = one frame/hour)
 timelapse_fps = 10            # frames per second in the rendered timelapse video
 
 # keepalive: GitHub automatically DISABLES a scheduled workflow after 60 days with

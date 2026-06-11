@@ -176,6 +176,17 @@ def test_history_stops_on_empty_page() -> None:
     assert len(mvs) == 20
 
 
+def test_history_stops_if_offset_ignored() -> None:
+    # Simulate an endpoint that ignores offset and returns the same full page
+    # forever. The pager must stop after the second page adds no new ids, not loop.
+    same_page = _history_page(20, 0)
+    responses = [FakeResponse(200, same_page) for _ in range(10)]
+    client, session = _client(responses)
+    mvs = list(client.iter_document_history("D", "W"))
+    assert len(mvs) == 20  # only the 20 unique ids, no duplicates
+    assert len(session.calls) == 2  # stopped after detecting no progress
+
+
 def test_history_is_lazy() -> None:
     # A consumer that stops early must not trigger the second page fetch.
     responses = [FakeResponse(200, _history_page(20, 0))]

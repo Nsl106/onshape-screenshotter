@@ -30,7 +30,6 @@ def _config(*targets: Target) -> Config:
         image_width=64,
         image_height=64,
         view="isometric",
-        backfill_interval_hours=1,
         timelapse_fps=10,
         keepalive=True,
     )

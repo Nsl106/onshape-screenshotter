@@ -28,7 +28,7 @@ This section updates itself each time frames are captured — one link per track
 document, pointing at its folder of frames.
 
 <!-- targets:start -->
-_No frames captured yet. Run the Capture or Backfill workflow to populate this._
+_No frames captured yet. Run the Capture workflow to populate this._
 <!-- targets:end -->
 
 ## Setup (about 10 minutes)
@@ -88,17 +88,14 @@ option is explained inline in the file.
 Open the **Actions** tab in your repo and click the green button to enable
 workflows. From now on the **Capture** job runs every hour on its own.
 
-### 6. (Optional but recommended) Backfill your history
+> **Start early.** This tool records history *going forward* from the moment you
+> turn it on — it does not (and cannot, affordably) reconstruct the past, because
+> Onshape's history is one entry per edit and there's no cheap way to replay it.
+> Switch Capture on at kickoff and your whole season builds itself. Want a head
+> start before adoption? Make a few **Versions** in Onshape at your milestones —
+> those are your permanent snapshots regardless of this tool.
 
-If your document already has weeks of history, reconstruct a timelapse from it
-instead of starting empty:
-
-1. **Actions → Backfill → Run workflow.** Tick **dry_run** first and run it — this
-   prints how many frames it *would* create, so you know the size before spending
-   any API quota.
-2. Happy with the number? Run **Backfill** again with dry_run unticked.
-
-### 7. Make the video
+### 6. Make the video
 
 **Actions → Timelapse → Run workflow** stitches your frames into an `.mp4` (tick
 `gif` for an animated GIF too). It also runs automatically whenever new frames are
@@ -112,17 +109,13 @@ links to each document's frames.
   commits keep it alive; in the offseason it can pause. Leave `keepalive = true` in
   `config.toml` (the default) and it commits a tiny no-op monthly to stay enabled —
   or just open **Actions** in January and re-enable it.
-- **Lots of “429” messages during Backfill.** That's Onshape's per-minute rate
-  limit. The tool already pauses and retries automatically; a long backfill simply
-  takes a while. Let it run.
+- **Occasional “429” messages.** That's Onshape's per-minute rate limit. The tool
+  pauses and retries automatically — nothing to do.
 - **“annual API-call quota … is used up (HTTP 402).”** Separate from 429, Onshape
-  caps how many API calls an account may make per *year*, and you've hit it. It
-  resets annually, and more calls can be requested from Onshape
-  (api-support@onshape.com). Backfilling a document with a long history is the
-  biggest consumer — reconstructing it pages through every microversion. If your
-  documents are large, raise `backfill_interval_hours` (e.g. to `24`) before
-  backfilling so the one-time job costs less, and remember the hourly Capture job
-  also counts toward the annual total (~24 calls/day per tracked document).
+  caps how many API calls an account may make per *year*. The hourly Capture job is
+  light (~24–48 calls/day per tracked document), so this is unlikely from normal
+  use, but if you share the key with other API tools you could hit it. It resets
+  annually, and more calls can be requested from Onshape (api-support@onshape.com).
 - **“Onshape rejected the API credentials.”** Double-check the two secret names are
   exactly `ONSHAPE_ACCESS_KEY` / `ONSHAPE_SECRET_KEY`, that you pasted the keys
   without extra spaces, and that the key's owner can open the document in Onshape.
@@ -144,7 +137,6 @@ ruff check . && ruff format --check .
 
 # Try a capture locally without writing anything (needs the two env vars set):
 ONSHAPE_ACCESS_KEY=… ONSHAPE_SECRET_KEY=… python -m progressor.capture --dry-run
-python -m progressor.backfill --dry-run    # preview backfill size
 
 # The timelapse step needs ffmpeg on your PATH (preinstalled on GitHub runners):
 #   macOS: brew install ffmpeg   ·   Ubuntu: sudo apt install ffmpeg

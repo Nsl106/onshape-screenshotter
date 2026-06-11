@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
 
-import pytest
-
 from progressor.slots import (
     Microversion,
-    boundaries,
     floor_to_hour,
     microversion_at,
     slot_key,
@@ -95,44 +92,3 @@ def test_microversion_at_short_circuits_lazy_iterator() -> None:
     assert mv is not None and mv.id == "m3"
     # Only the first (newest) entry should have been pulled.
     assert consumed == ["m3"]
-
-
-# --- boundaries -----------------------------------------------------------------
-
-
-def test_boundaries_hourly_inclusive_ends() -> None:
-    result = list(boundaries(_utc(2024, 1, 1, 0), _utc(2024, 1, 1, 3), 1))
-    assert result == [
-        _utc(2024, 1, 1, 0),
-        _utc(2024, 1, 1, 1),
-        _utc(2024, 1, 1, 2),
-        _utc(2024, 1, 1, 3),
-    ]
-
-
-def test_boundaries_floor_start_to_hour() -> None:
-    result = list(boundaries(_utc(2024, 1, 1, 0, 47), _utc(2024, 1, 1, 2), 1))
-    # Start 00:47 floors to 00:00; every boundary lands on an hour mark.
-    assert result[0] == _utc(2024, 1, 1, 0)
-    assert all(b.minute == 0 and b.second == 0 for b in result)
-
-
-def test_boundaries_daily_interval() -> None:
-    result = list(boundaries(_utc(2024, 1, 1), _utc(2024, 1, 4), 24))
-    assert result == [
-        _utc(2024, 1, 1),
-        _utc(2024, 1, 2),
-        _utc(2024, 1, 3),
-        _utc(2024, 1, 4),
-    ]
-
-
-def test_boundaries_excludes_past_end() -> None:
-    result = list(boundaries(_utc(2024, 1, 1, 0), _utc(2024, 1, 1, 2, 30), 1))
-    # 02:30 end -> last included boundary is 02:00, not 03:00.
-    assert result[-1] == _utc(2024, 1, 1, 2)
-
-
-def test_boundaries_rejects_zero_interval() -> None:
-    with pytest.raises(ValueError):
-        list(boundaries(_utc(2024, 1, 1), _utc(2024, 1, 2), 0))

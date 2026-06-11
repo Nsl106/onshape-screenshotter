@@ -20,7 +20,6 @@ def _valid_data() -> dict:
             "image_width": 800,
             "image_height": 600,
             "view": "isometric",
-            "backfill_interval_hours": 12,
             "timelapse_fps": 15,
             "keepalive": False,
         },
@@ -76,7 +75,6 @@ def test_settings_defaults_applied_when_absent() -> None:
     # Defaults mirror the shipped config.toml.
     assert cfg.settings.image_width == 1024
     assert cfg.settings.view == "isometric"
-    assert cfg.settings.backfill_interval_hours == 1
     assert cfg.settings.timelapse_fps == 10
     assert cfg.settings.keepalive is True
 

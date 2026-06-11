@@ -1,19 +1,17 @@
-"""Pure slot logic shared by both the forward and backfill jobs.
+"""Pure slot logic for the capture job.
 
-Holds the ``Microversion`` domain type plus the three pure functions at the heart
-of the anchoring + dedup design: the canonical slot key for an instant, the
-resolver for "the microversion current at instant T", and the boundary-instant
-generator the backfill steps through. No I/O, no network — fully unit-testable.
-(The functions land in Phase 3; the ``Microversion`` type lives here so the
-networked client and the pure logic share it without ``slots`` depending on
-``requests``.)
+Holds the ``Microversion`` domain type plus the pure functions at the heart of the
+anchoring + dedup design: the canonical slot key for an instant and the resolver
+for "the microversion current at instant T". No I/O, no network — fully
+unit-testable. (The ``Microversion`` type lives here so the networked client and
+the pure logic share it without ``slots`` depending on ``requests``.)
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -52,9 +50,9 @@ def floor_to_hour(t: datetime) -> datetime:
 def slot_key(t: datetime) -> str:
     """Return the canonical ``YYYY-MM-DD_HH`` slot key for instant ``t`` (UTC).
 
-    This is the single source of truth for a frame's filename. Both jobs derive
-    it from their target instant ``T`` — never from a microversion's own timestamp
-    or from wall-clock run time — so backfilled and live frames share one ordered,
+    This is the single source of truth for a frame's filename. The capture job
+    derives it from its target instant ``T`` — never from a microversion's own
+    timestamp or from wall-clock run time — so frames share one ordered,
     collision-free naming scheme. Slot keys also sort chronologically as strings.
     """
     return _to_utc(t).strftime("%Y-%m-%d_%H")
@@ -78,32 +76,3 @@ def microversion_at(
         if mv.created_at <= cutoff:
             return mv
     return None
-
-
-def boundaries(
-    start: datetime, end: datetime, interval_hours: int
-) -> Iterator[datetime]:
-    """Yield hour-aligned boundary instants from ``start`` through ``end``.
-
-    The first boundary is ``start`` floored to its hour; each subsequent one is
-    ``interval_hours`` later, up to and including any boundary that is ``<= end``.
-    Because the start is on an hour mark and the step is a whole number of hours,
-    every boundary lands on an hour mark, so ``slot_key`` of each is clean and the
-    backfill's daily/hourly sampling never produces a half-hour slot.
-
-    Args:
-        start: Earliest instant to sample (typically the first microversion's time).
-        end: Latest instant to sample (typically "now").
-        interval_hours: Step between boundaries; must be >= 1.
-
-    Raises:
-        ValueError: if ``interval_hours`` is less than 1.
-    """
-    if interval_hours < 1:
-        raise ValueError("interval_hours must be at least 1")
-    step = timedelta(hours=interval_hours)
-    current = floor_to_hour(start)
-    end_utc = _to_utc(end)
-    while current <= end_utc:
-        yield current
-        current += step

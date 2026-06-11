@@ -69,7 +69,6 @@ class Settings:
         image_width: Rendered PNG width in pixels.
         image_height: Rendered PNG height in pixels.
         view: A named Onshape view (e.g. ``"isometric"``) or a 12-number matrix string.
-        backfill_interval_hours: Bucket size, in hours, for sampling history.
         timelapse_fps: Frames per second for the stitched timelapse video.
         keepalive: Whether the workflow commits a monthly no-op to defeat the
             60-day scheduled-workflow auto-disable.
@@ -78,7 +77,6 @@ class Settings:
     image_width: int
     image_height: int
     view: str
-    backfill_interval_hours: int
     timelapse_fps: int
     keepalive: bool
 
@@ -97,7 +95,6 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "image_width": 1024,
     "image_height": 1024,
     "view": "isometric",
-    "backfill_interval_hours": 1,
     "timelapse_fps": 10,
     "keepalive": True,
 }
