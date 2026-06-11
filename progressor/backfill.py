@@ -23,8 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import frames, index
-from .config import Config, Target, load_config
-from .onshape import OnshapeClient, OnshapeError
+from .config import Config, ConfigError, Target, load_config
+from .onshape import OnshapeAuthError, OnshapeClient, OnshapeError
 from .slots import Microversion, boundaries, microversion_at, slot_key
 from .state import read_state, state_path, write_state
 
@@ -209,8 +209,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    config = load_config(args.config)
-    client = OnshapeClient.from_env()
+    try:
+        config = load_config(args.config)
+        client = OnshapeClient.from_env()
+    except (ConfigError, OnshapeAuthError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
     results = run(
         config,
         client,

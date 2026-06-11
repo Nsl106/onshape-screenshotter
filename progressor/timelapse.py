@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import frames
-from .config import Config, load_config
+from .config import Config, ConfigError, load_config
 
 TIMELAPSE_DIR = "timelapse"
 
@@ -189,7 +189,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     results = run(config, root=args.root, gif=args.gif)
     for result in results:
         print(result.line())

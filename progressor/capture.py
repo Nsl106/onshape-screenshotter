@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import frames, index
-from .config import Config, Target, load_config
-from .onshape import OnshapeClient, OnshapeError
+from .config import Config, ConfigError, Target, load_config
+from .onshape import OnshapeAuthError, OnshapeClient, OnshapeError
 from .slots import floor_to_hour, microversion_at, slot_key
 from .state import State, read_state, state_path, write_state
 
@@ -183,8 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     at = datetime.fromisoformat(args.at) if args.at else None
-    config = load_config(args.config)
-    client = OnshapeClient.from_env()
+    try:
+        config = load_config(args.config)
+        client = OnshapeClient.from_env()
+    except (ConfigError, OnshapeAuthError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
     results = run(config, client, at=at, root=args.root, dry_run=args.dry_run)
     for result in results:
