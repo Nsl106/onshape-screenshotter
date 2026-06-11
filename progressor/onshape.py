@@ -86,6 +86,14 @@ class OnshapeAPIError(OnshapeError):
         super().__init__(message)
 
 
+class OnshapeQuotaError(OnshapeError):
+    """The account's annual API-call quota is exhausted (HTTP 402).
+
+    Not retryable and not a credential problem — the account is simply out of API
+    calls for the year. Raised so callers can surface a distinct, actionable hint.
+    """
+
+
 @dataclass(frozen=True)
 class ElementMetadata:
     """The fetched, not-in-the-URL facts about a target element.
@@ -224,6 +232,17 @@ class OnshapeClient:
                 )
             if 200 <= response.status_code < 300:
                 return response
+            if response.status_code == 402:
+                # Onshape returns 402 when the account's *annual* API-call quota is
+                # exhausted (distinct from the per-minute 429 rate limit). It won't
+                # clear by retrying, so fail fast with an actionable message.
+                raise OnshapeQuotaError(
+                    "Onshape's annual API-call quota for this account is used up "
+                    "(HTTP 402). It resets each year; more calls can be requested "
+                    "from Onshape (api-support@onshape.com). A large backfill can "
+                    "consume a lot of quota — consider a coarser "
+                    "backfill_interval_hours."
+                )
             if response.status_code == 429 or 500 <= response.status_code < 600:
                 last_error = f"HTTP {response.status_code} from {method} {path}"
                 if attempt < self._max_attempts - 1:

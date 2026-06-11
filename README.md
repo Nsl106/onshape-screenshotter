@@ -112,9 +112,17 @@ links to each document's frames.
   commits keep it alive; in the offseason it can pause. Leave `keepalive = true` in
   `config.toml` (the default) and it commits a tiny no-op monthly to stay enabled —
   or just open **Actions** in January and re-enable it.
-- **Lots of “429” messages during Backfill.** That's Onshape's rate limit. The tool
-  already pauses and retries automatically; a long backfill simply takes a while.
-  Let it run.
+- **Lots of “429” messages during Backfill.** That's Onshape's per-minute rate
+  limit. The tool already pauses and retries automatically; a long backfill simply
+  takes a while. Let it run.
+- **“annual API-call quota … is used up (HTTP 402).”** Separate from 429, Onshape
+  caps how many API calls an account may make per *year*, and you've hit it. It
+  resets annually, and more calls can be requested from Onshape
+  (api-support@onshape.com). Backfilling a document with a long history is the
+  biggest consumer — reconstructing it pages through every microversion. If your
+  documents are large, raise `backfill_interval_hours` (e.g. to `24`) before
+  backfilling so the one-time job costs less, and remember the hourly Capture job
+  also counts toward the annual total (~24 calls/day per tracked document).
 - **“Onshape rejected the API credentials.”** Double-check the two secret names are
   exactly `ONSHAPE_ACCESS_KEY` / `ONSHAPE_SECRET_KEY`, that you pasted the keys
   without extra spaces, and that the key's owner can open the document in Onshape.

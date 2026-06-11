@@ -12,6 +12,7 @@ from progressor.onshape import (
     OnshapeAPIError,
     OnshapeAuthError,
     OnshapeClient,
+    OnshapeQuotaError,
     resolve_view,
 )
 
@@ -212,6 +213,13 @@ def test_429_gives_up_after_max_attempts() -> None:
     with pytest.raises(OnshapeAPIError) as exc:
         client.get_document_name("D")
     assert exc.value.status == 429
+
+
+def test_402_raises_quota_error_without_retry() -> None:
+    client, session = _client([FakeResponse(402)])
+    with pytest.raises(OnshapeQuotaError, match="annual API-call quota"):
+        client.get_document_name("D")
+    assert len(session.calls) == 1  # not retried — quota won't clear by waiting
 
 
 def test_auth_failure_raises_immediately() -> None:
