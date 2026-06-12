@@ -9,7 +9,7 @@ The package is a small pipeline. Each module owns one stage:
 - ``state``     — read/write the per-target ``state/<element_id>.json`` change marker.
 - ``frames``    — frame paths, existence checks, image writing (first-writer-wins).
 - ``index``     — maintain the auto-generated "Tracked CAD" section of the README.
-- ``capture``   — the hourly forward job entrypoint.
+- ``capture``   — the scheduled forward job entrypoint.
 - ``timelapse`` — stitch committed frames into a video via ffmpeg.
 """
 

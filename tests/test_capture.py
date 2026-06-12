@@ -55,16 +55,22 @@ class FakeClient:
         self._render_error = render_error
         self._metadata_error = metadata_error
         self.rendered: list[str] = []
+        self.metadata_calls = 0
+        self.doc_name_calls = 0
+        self.history_calls = 0
 
     def get_element_metadata(self, target):
+        self.metadata_calls += 1
         if self._metadata_error:
             raise OnshapeAPIError(500, "metadata boom")
         return ElementMetadata(name=self._name, element_type=self._element_type)
 
     def get_document_name(self, did):
+        self.doc_name_calls += 1
         return self._doc_name
 
     def iter_document_history(self, did, wid):
+        self.history_calls += 1
         yield from self._history.get(did, [])
 
     def render_shaded_view(self, target, element_type, mid, *, view, width, height):
@@ -93,6 +99,36 @@ def test_unchanged_skips(tmp_path) -> None:
     [result] = run(_config(), client, at=_utc(2024, 1, 5, 9, 30), root=tmp_path)
     assert result.status == UNCHANGED
     assert client.rendered == []  # never rendered
+
+
+def test_unchanged_run_costs_only_one_api_call(tmp_path) -> None:
+    # The quota-critical path: an unchanged run must spend exactly one call (the
+    # history check) — no metadata, no document name, no render.
+    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
+    write_state(state_path("E1", tmp_path), State(last_microversion="m2"))
+    client = FakeClient(history=hist)
+    run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
+    assert client.history_calls == 1
+    assert client.metadata_calls == 0
+    assert client.doc_name_calls == 0
+    assert client.rendered == []
+
+
+def test_metadata_fetched_once_then_cached(tmp_path) -> None:
+    # First capture fetches metadata + doc name; a later capture reuses the cache,
+    # so a changed run costs only history + render (2 calls).
+    hist = {"D1": [Microversion("m1", _utc(2024, 1, 5, 9))]}
+    client = FakeClient(history=hist)
+    run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
+    assert client.metadata_calls == 1
+    assert client.doc_name_calls == 1
+
+    # A new microversion in a fresh slot -> a second capture, metadata already cached.
+    hist["D1"] = [Microversion("m2", _utc(2024, 1, 5, 15)), *hist["D1"]]
+    run(_config(), client, at=_utc(2024, 1, 5, 15), root=tmp_path)
+    assert client.metadata_calls == 1  # not re-fetched
+    assert client.doc_name_calls == 1  # not re-fetched
+    assert client.rendered == ["m1", "m2"]
 
 
 def test_changed_but_slot_filled_skips(tmp_path) -> None:

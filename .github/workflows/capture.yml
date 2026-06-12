@@ -1,4 +1,4 @@
-# Hourly forward capture: render the microversion current at the top of each hour
+# Scheduled forward capture: render the microversion current at the top of the hour
 # for every configured target and commit any new frames. Also runnable on demand.
 #
 # Third-party actions are GitHub-authored and pinned to a major version. For the
@@ -7,9 +7,16 @@ name: Capture
 
 on:
   schedule:
-    # Top of every hour (UTC). GitHub may run it late; the job anchors on the
-    # scheduled hour mark, so a late run still records an on-the-hour frame.
-    - cron: "0 * * * *"
+    # Every 6 hours (UTC). GitHub may run it late; the job anchors on the scheduled
+    # hour mark, so a late run still records an on-the-hour frame.
+    #
+    # WHY NOT HOURLY: Onshape caps API calls PER YEAR (Education ~2,500/yr ≈ 6.8/day;
+    # Professional 5,000; Enterprise 10,000). Each run costs ~1 call (just a change
+    # check) or ~2 when it captures. Every-6h ≈ 4 checks/day ≈ ~2,000 calls/year for
+    # ONE document — about the most an Education plan sustains. Tune this to your
+    # plan and number of targets (see the README "API budget" section): "0 */12 * * *"
+    # for twice a day, "0 */3 * * *" for every 3 hours if you have the quota.
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}
 
 # Allow the built-in GITHUB_TOKEN to push commits; no personal access token needed.

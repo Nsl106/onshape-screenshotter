@@ -11,8 +11,8 @@ timelapse_fps = 10            # frames per second in the rendered timelapse vide
 # keepalive: GitHub automatically DISABLES a scheduled workflow after 60 days with
 # no repo activity. During build season this never triggers (frames are committed
 # as your CAD changes), but in the quiet offseason it can. When true, the capture
-# workflow commits a tiny no-op file roughly monthly so the hourly job keeps running
-# untouched. Set false if you'd rather re-enable Actions by hand each January.
+# workflow commits a tiny no-op file roughly monthly so the scheduled job keeps
+# running untouched. Set false if you'd rather re-enable Actions by hand each January.
 keepalive = true
 
 # One [[targets]] block per part studio or assembly you want to track.

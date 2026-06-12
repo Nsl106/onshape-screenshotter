@@ -1,9 +1,9 @@
 # Onshape Progressor
 
 Watch your robot come together. Onshape Progressor takes a picture of your team's
-Onshape part studio or assembly every hour, and saves it only when the CAD actually
-changed — building up a timelapse of your whole season. It runs entirely inside
-**your own** private copy of this repository on GitHub, for free.
+Onshape part studio or assembly a few times a day, and saves it only when the CAD
+actually changed — building up a timelapse of your whole season. It runs entirely
+inside **your own** private copy of this repository on GitHub, for free.
 
 > 🎬 _Your timelapse will appear under [`timelapse/`](timelapse/) after the first
 > Timelapse run. Drop a link to your favorite one here._
@@ -86,7 +86,9 @@ option is explained inline in the file.
 ### 5. Turn on Actions
 
 Open the **Actions** tab in your repo and click the green button to enable
-workflows. From now on the **Capture** job runs every hour on its own.
+workflows. From now on the **Capture** job runs **every 6 hours** on its own. (That
+cadence is set to fit a tight API budget — see [API budget](#api-budget) below
+before changing it.)
 
 > **Start early.** This tool records history *going forward* from the moment you
 > turn it on — it does not (and cannot, affordably) reconstruct the past, because
@@ -102,20 +104,55 @@ workflows. From now on the **Capture** job runs every hour on its own.
 captured. The result lands in `timelapse/`, and the **Tracked CAD** section above
 links to each document's frames.
 
+## API budget
+
+This is the one number to understand before you scale up. **Onshape limits API
+calls per _year_, per account:**
+
+| Plan | Calls / year | ≈ Calls / day |
+| ---- | ------------ | ------------- |
+| Education (most FRC teams) | 2,500 | ~6.8 |
+| Professional | 5,000 / user | ~13.7 |
+| Enterprise | 10,000 / user | ~27 |
+
+Each Capture run costs about **1 call** (just checking whether the CAD changed) and
+**2 calls** when it actually saves a frame. So per tracked document:
+
+```
+calls/year  ≈  (runs per day) × 365 × ~1.3
+```
+
+At the default **every 6 hours** (4 runs/day) that's **~1,900 calls/year for one
+document** — which fits an Education plan with a little headroom, but means **one
+tracked document per Education account** is the realistic limit. To track more, or
+to stretch the quota, raise the cron interval in
+[`.github/workflows/capture.yml`](.github/workflows/capture.yml):
+
+| Cron | Runs/day | ≈ Calls/year (1 doc) | Good for |
+| ---- | -------- | -------------------- | -------- |
+| `0 */12 * * *` | 2 | ~950 | Education, or 2 docs |
+| `0 */6 * * *` (default) | 4 | ~1,900 | Education, 1 doc |
+| `0 */3 * * *` | 8 | ~3,800 | Professional / Enterprise |
+
+A few frames a day is plenty for a season timelapse: every-6-hours over a ~4-month
+build season is 400–500 frames ≈ a 40–50-second video at 10 fps. If you need to
+reset or raise your limit, contact Onshape (`api-support@onshape.com`).
+
 ## Troubleshooting
 
 - **Capture stopped running after a couple of months.** GitHub disables scheduled
-  workflows after 60 days with no repo activity. During build season the hourly
+  workflows after 60 days with no repo activity. During build season the regular
   commits keep it alive; in the offseason it can pause. Leave `keepalive = true` in
   `config.toml` (the default) and it commits a tiny no-op monthly to stay enabled —
   or just open **Actions** in January and re-enable it.
 - **Occasional “429” messages.** That's Onshape's per-minute rate limit. The tool
   pauses and retries automatically — nothing to do.
 - **“annual API-call quota … is used up (HTTP 402).”** Separate from 429, Onshape
-  caps how many API calls an account may make per *year*. The hourly Capture job is
-  light (~24–48 calls/day per tracked document), so this is unlikely from normal
-  use, but if you share the key with other API tools you could hit it. It resets
-  annually, and more calls can be requested from Onshape (api-support@onshape.com).
+  caps how many API calls an account may make per *year* (see [API budget](#api-budget)).
+  If you hit it, your cron interval is too aggressive for your plan or your tracking
+  too many documents — raise the interval in `capture.yml` or drop a target. It
+  resets annually, and more calls can be requested from Onshape
+  (api-support@onshape.com).
 - **“Onshape rejected the API credentials.”** Double-check the two secret names are
   exactly `ONSHAPE_ACCESS_KEY` / `ONSHAPE_SECRET_KEY`, that you pasted the keys
   without extra spaces, and that the key's owner can open the document in Onshape.

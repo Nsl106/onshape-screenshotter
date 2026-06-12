@@ -1,4 +1,4 @@
-"""Forward capture job — the hourly entrypoint (``python -m progressor.capture``).
+"""Forward capture job — the scheduled entrypoint (``python -m progressor.capture``).
 
 For each configured target it anchors on the top of the scheduled hour ``T``,
 resolves the microversion that was current at ``T``, and renders + files a frame
@@ -45,16 +45,23 @@ class TargetResult:
         return f"{self.element_id}: {self.status}{suffix}"
 
 
-def _resolve_target_type(
-    client: OnshapeClient, target: Target, state: State
-) -> tuple[str, State]:
-    """Return the element type, fetching+caching metadata into state if needed."""
-    if state.element_type:
-        return state.element_type, state
-    meta = client.get_element_metadata(target)
-    state.element_type = meta.element_type
-    state.display_name = meta.name
-    return meta.element_type, state
+def _ensure_metadata(client: OnshapeClient, target: Target, state: State) -> None:
+    """Populate ``state`` with element type/name (and document name) if not cached.
+
+    Onshape's annual API quota is tight (e.g. 2,500/yr on Education plans), so this
+    metadata is fetched exactly once per target — on the first capture — and reused
+    forever after. The display name therefore won't follow a later tab rename; that
+    cosmetic staleness is a deliberate trade for spending no quota on every run.
+    """
+    if not state.element_type:
+        meta = client.get_element_metadata(target)
+        state.element_type = meta.element_type
+        state.display_name = meta.name
+    if not state.document_name:
+        try:
+            state.document_name = client.get_document_name(target.document_id)
+        except OnshapeError:
+            pass  # Document name is cosmetic; don't fail a capture over it.
 
 
 def _process_target(
@@ -71,11 +78,12 @@ def _process_target(
 
     Mirrors SPEC's forward-job steps: resolve the microversion current at ``T``,
     skip if unchanged or if the slot is already filled, otherwise render at that
-    microversion and write the frame + updated state.
+    microversion and write the frame + updated state. To conserve API quota, the
+    only call made on an unchanged run is the single history lookup; metadata and
+    rendering happen solely when a new frame is actually being written.
     """
     eid = target.element_id
     state = read_state(state_path(eid, root))
-    element_type, state = _resolve_target_type(client, target, state)
 
     history = client.iter_document_history(target.document_id, target.workspace_id)
     mv = microversion_at(history, t)
@@ -94,22 +102,20 @@ def _process_target(
     if dry_run:
         return TargetResult(eid, CAPTURED, f"{slot} (dry-run, not written)")
 
+    # A new frame is warranted: now (and only now) spend calls on metadata + render.
+    _ensure_metadata(client, target, state)
     png = client.render_shaded_view(
-        target, element_type, mv.id, view=settings_view, width=width, height=height
+        target,
+        state.element_type,
+        mv.id,
+        view=settings_view,
+        width=width,
+        height=height,
     )
     wrote = frames.write_frame(eid, slot, png, root)
     if not wrote:
         # Another writer filled the slot between the check and now — respect it.
         return TargetResult(eid, SLOT_FILLED, f"{slot}")
-
-    # Refresh display metadata on a real capture so the README index stays current.
-    try:
-        meta = client.get_element_metadata(target)
-        state.element_type = meta.element_type
-        state.display_name = meta.name
-        state.document_name = client.get_document_name(target.document_id)
-    except OnshapeError:
-        pass  # Metadata is cosmetic; never fail a successful capture over it.
 
     state.last_microversion = mv.id
     state.last_captured_at = datetime.now(UTC).isoformat()
