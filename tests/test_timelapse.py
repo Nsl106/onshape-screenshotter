@@ -15,6 +15,9 @@ def _config(fps=10, *targets: Target) -> Config:
         view="isometric",
         timelapse_fps=fps,
         keepalive=True,
+        timezone="UTC",
+        quiet_hours_start=0,
+        quiet_hours_end=0,
     )
     target = Target(
         url="https://cad.onshape.com/documents/D/w/W/e/E1",

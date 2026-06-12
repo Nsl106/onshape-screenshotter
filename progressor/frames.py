@@ -9,7 +9,41 @@ API quota is spent re-rendering it. No network access.
 
 from __future__ import annotations
 
+import hashlib
+import struct
 from pathlib import Path
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def image_fingerprint(data: bytes) -> str:
+    """Return a stable content hash of a PNG, ignoring non-pixel metadata.
+
+    Change detection renders the current model each run and compares this
+    fingerprint to the last saved frame's: equal means the CAD didn't change, so no
+    new frame is written. To keep that comparison from tripping on cosmetic
+    differences (an embedded timestamp or other ancillary chunk), the hash covers
+    only the image-defining ``IHDR`` and ``IDAT`` chunks. Anything that isn't a
+    parseable PNG falls back to hashing the raw bytes.
+    """
+    if not data.startswith(_PNG_SIGNATURE):
+        return hashlib.sha256(data).hexdigest()
+    digest = hashlib.sha256()
+    offset = len(_PNG_SIGNATURE)
+    try:
+        while offset + 8 <= len(data):
+            (length,) = struct.unpack(">I", data[offset : offset + 4])
+            ctype = data[offset + 4 : offset + 8]
+            body = data[offset + 8 : offset + 8 + length]
+            if ctype in (b"IHDR", b"IDAT"):
+                digest.update(ctype)
+                digest.update(body)
+            offset += 12 + length  # 4 length + 4 type + data + 4 CRC
+            if ctype == b"IEND":
+                break
+    except struct.error:
+        return hashlib.sha256(data).hexdigest()
+    return digest.hexdigest()
 
 
 def frames_dir(element_id: str, root: Path | str = ".") -> Path:

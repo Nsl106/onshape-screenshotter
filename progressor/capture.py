@@ -1,12 +1,16 @@
 """Forward capture job — the scheduled entrypoint (``python -m progressor.capture``).
 
-For each configured target it anchors on the top of the scheduled hour ``T``,
-resolves the microversion that was current at ``T``, and renders + files a frame
-only if the document changed since the last capture and the slot isn't already
-filled. Targets are processed independently: one failing target never stops the
-others. Git commit/push is handled by the workflow, not here, so this script has
-no side effects beyond writing into ``frames/`` and ``state/`` (and the README
-index) — making it safe to run and ``--dry-run`` locally.
+Each run renders every configured target's current workspace state in a single API
+call, then decides locally whether to keep the frame: if the rendered image matches
+the last one saved (same fingerprint), the CAD didn't change and nothing is written.
+So an unchanged run and a changed run both cost exactly one render call — the
+cheapest the tool can be against Onshape's tight annual quota. Runs inside the
+configured quiet-hours window are skipped before any API call at all.
+
+Targets are processed independently: one failing target never stops the others. Git
+commit/push is handled by the workflow, not here, so this script's only side effects
+are writing into ``frames/`` / ``state/`` and refreshing the README index — making
+it safe to run and ``--dry-run`` locally.
 """
 
 from __future__ import annotations
@@ -20,14 +24,14 @@ from pathlib import Path
 from . import frames, index
 from .config import Config, ConfigError, Target, load_config
 from .onshape import OnshapeAuthError, OnshapeClient, OnshapeError
-from .slots import floor_to_hour, microversion_at, slot_key
+from .slots import is_quiet, slot_key
 from .state import State, read_state, state_path, write_state
 
 # Per-target outcomes, in the order they're reported on the one-line summary.
 CAPTURED = "captured"
 UNCHANGED = "unchanged"
 SLOT_FILLED = "skipped (slot filled)"
-ABSENT = "absent at T"
+QUIET = "skipped (quiet hours)"
 ERROR = "error"
 
 
@@ -67,58 +71,43 @@ def _ensure_metadata(client: OnshapeClient, target: Target, state: State) -> Non
 def _process_target(
     client: OnshapeClient,
     target: Target,
-    settings_view: str,
+    view: str,
     width: int,
     height: int,
-    t: datetime,
+    now: datetime,
     root: Path,
     dry_run: bool,
 ) -> TargetResult:
-    """Run the full forward-capture decision for a single target at instant ``T``.
+    """Render one target's current state and save it iff it changed since last time.
 
-    Mirrors SPEC's forward-job steps: resolve the microversion current at ``T``,
-    skip if unchanged or if the slot is already filled, otherwise render at that
-    microversion and write the frame + updated state. To conserve API quota, the
-    only call made on an unchanged run is the single history lookup; metadata and
-    rendering happen solely when a new frame is actually being written.
+    Spends a single render call, fingerprints the result, and writes a new frame
+    only when the fingerprint differs from the last saved one and the slot for this
+    hour isn't already filled (first-writer-wins).
     """
     eid = target.element_id
     state = read_state(state_path(eid, root))
+    _ensure_metadata(client, target, state)
 
-    history = client.iter_document_history(target.document_id, target.workspace_id)
-    mv = microversion_at(history, t)
-    if mv is None:
-        return TargetResult(
-            eid, ABSENT, f"(document had no microversion at {slot_key(t)})"
-        )
-
-    if mv.id == state.last_microversion:
+    png = client.render_shaded_view(
+        target, state.element_type, view=view, width=width, height=height
+    )
+    fingerprint = frames.image_fingerprint(png)
+    if fingerprint == state.last_image_hash:
         return TargetResult(eid, UNCHANGED)
 
-    slot = slot_key(t)
+    slot = slot_key(now)
     if frames.exists(eid, slot, root):
-        return TargetResult(eid, SLOT_FILLED, f"{slot}")
+        return TargetResult(eid, SLOT_FILLED, slot)
 
     if dry_run:
         return TargetResult(eid, CAPTURED, f"{slot} (dry-run, not written)")
 
-    # A new frame is warranted: now (and only now) spend calls on metadata + render.
-    _ensure_metadata(client, target, state)
-    png = client.render_shaded_view(
-        target,
-        state.element_type,
-        mv.id,
-        view=settings_view,
-        width=width,
-        height=height,
-    )
-    wrote = frames.write_frame(eid, slot, png, root)
-    if not wrote:
+    if not frames.write_frame(eid, slot, png, root):
         # Another writer filled the slot between the check and now — respect it.
-        return TargetResult(eid, SLOT_FILLED, f"{slot}")
+        return TargetResult(eid, SLOT_FILLED, slot)
 
-    state.last_microversion = mv.id
-    state.last_captured_at = datetime.now(UTC).isoformat()
+    state.last_image_hash = fingerprint
+    state.last_captured_at = now.isoformat()
     write_state(state_path(eid, root), state)
     return TargetResult(eid, CAPTURED, slot)
 
@@ -127,18 +116,26 @@ def run(
     config: Config,
     client: OnshapeClient,
     *,
-    at: datetime | None = None,
+    now: datetime | None = None,
     root: Path | str = ".",
     dry_run: bool = False,
 ) -> list[TargetResult]:
-    """Process every target for the hour mark ``T`` and return per-target results.
+    """Process every target as of ``now`` and return per-target results.
 
-    ``T`` is ``at`` (if given) or now, floored to the hour. Each target is isolated
-    in its own try/except so one failure can't abort the rest. Updates the README
-    index once at the end (unless dry-run).
+    If ``now`` falls in the configured quiet-hours window, every target is skipped
+    without any API call. Otherwise each target is isolated in its own try/except so
+    one failure can't abort the rest, and the README index is refreshed once at the
+    end (unless this is a dry run with no captures).
     """
     root = Path(root)
-    t = floor_to_hour(at or datetime.now(UTC))
+    now = now or datetime.now(UTC)
+    settings = config.settings
+
+    if is_quiet(
+        now, settings.timezone, settings.quiet_hours_start, settings.quiet_hours_end
+    ):
+        return [TargetResult(t.element_id, QUIET) for t in config.targets]
+
     results: list[TargetResult] = []
     for target in config.targets:
         try:
@@ -146,10 +143,10 @@ def run(
                 _process_target(
                     client,
                     target,
-                    config.settings.view,
-                    config.settings.image_width,
-                    config.settings.image_height,
-                    t,
+                    settings.view,
+                    settings.image_width,
+                    settings.image_height,
+                    now,
                     root,
                     dry_run,
                 )
@@ -168,27 +165,20 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint. Returns 0 unless *every* target errored."""
     parser = argparse.ArgumentParser(
         prog="progressor.capture",
-        description="Render the microversion current at the top of the hour for each "
-        "configured Onshape target and save it as a timelapse frame.",
+        description="Render each configured Onshape target's current state and save "
+        "it as a timelapse frame when the model has changed.",
     )
     parser.add_argument("--config", default="config.toml", help="path to config.toml")
-    parser.add_argument(
-        "--at",
-        metavar="ISO_DATETIME",
-        help="capture as of this instant instead of now (ISO-8601, UTC assumed); "
-        "for testing and manual gap-filling",
-    )
     parser.add_argument(
         "--root", default=".", help="repo root containing frames/ and state/"
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="resolve and report what would be captured without writing any files",
+        help="render and report what would be captured without writing any files",
     )
     args = parser.parse_args(argv)
 
-    at = datetime.fromisoformat(args.at) if args.at else None
     try:
         config = load_config(args.config)
         client = OnshapeClient.from_env()
@@ -196,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    results = run(config, client, at=at, root=args.root, dry_run=args.dry_run)
+    results = run(config, client, root=args.root, dry_run=args.dry_run)
     for result in results:
         print(result.line())
 

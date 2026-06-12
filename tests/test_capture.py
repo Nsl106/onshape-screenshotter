@@ -1,14 +1,13 @@
-"""Forward-capture scenario tests with a fake client (no network, no real files)."""
+"""Capture scenario tests with a fake client (no network, no real files)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
 from progressor import frames
-from progressor.capture import ABSENT, CAPTURED, ERROR, SLOT_FILLED, UNCHANGED, run
+from progressor.capture import CAPTURED, ERROR, QUIET, SLOT_FILLED, UNCHANGED, run
 from progressor.config import Config, Settings, Target
 from progressor.onshape import ElementMetadata, OnshapeAPIError
-from progressor.slots import Microversion
 from progressor.state import State, read_state, state_path, write_state
 
 
@@ -25,172 +24,168 @@ def _target(eid="E1", did="D1", wid="W1") -> Target:
     )
 
 
-def _config(*targets: Target) -> Config:
+def _config(*targets: Target, quiet=(0, 0), tz="UTC") -> Config:
     settings = Settings(
         image_width=64,
         image_height=64,
         view="isometric",
         timelapse_fps=10,
         keepalive=True,
+        timezone=tz,
+        quiet_hours_start=quiet[0],
+        quiet_hours_end=quiet[1],
     )
     return Config(settings=settings, targets=targets or (_target(),))
 
 
 class FakeClient:
-    """Configurable stand-in for OnshapeClient."""
+    """Stand-in for OnshapeClient. ``image`` is the bytes render returns."""
 
     def __init__(
         self,
-        history: dict[str, list[Microversion]] | None = None,
+        image: bytes = b"IMG-A",
         element_type: str = "assembly",
         name: str = "Drivetrain",
         doc_name: str = "Robot 2026",
         render_error: bool = False,
-        metadata_error: bool = False,
     ) -> None:
-        self._history = history or {}
+        self.image = image
         self._element_type = element_type
         self._name = name
         self._doc_name = doc_name
         self._render_error = render_error
-        self._metadata_error = metadata_error
-        self.rendered: list[str] = []
+        self.rendered = 0
         self.metadata_calls = 0
         self.doc_name_calls = 0
-        self.history_calls = 0
 
     def get_element_metadata(self, target):
         self.metadata_calls += 1
-        if self._metadata_error:
-            raise OnshapeAPIError(500, "metadata boom")
         return ElementMetadata(name=self._name, element_type=self._element_type)
 
     def get_document_name(self, did):
         self.doc_name_calls += 1
         return self._doc_name
 
-    def iter_document_history(self, did, wid):
-        self.history_calls += 1
-        yield from self._history.get(did, [])
-
-    def render_shaded_view(self, target, element_type, mid, *, view, width, height):
+    def render_shaded_view(self, target, element_type, *, view, width, height):
+        self.rendered += 1
         if self._render_error:
             raise OnshapeAPIError(500, "render boom")
-        self.rendered.append(mid)
-        return f"PNG-{mid}".encode()
+        return self.image
 
 
-def test_changed_writes_frame_and_state(tmp_path) -> None:
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    client = FakeClient(history=hist)
-    [result] = run(_config(), client, at=_utc(2024, 1, 5, 9, 30), root=tmp_path)
+def test_first_run_captures_and_caches_metadata(tmp_path) -> None:
+    client = FakeClient(image=b"PNGBYTES")
+    [result] = run(_config(), client, now=_utc(2024, 1, 5, 9), root=tmp_path)
     assert result.status == CAPTURED
-    assert frames.frame_path("E1", "2024-01-05_09", tmp_path).read_bytes() == b"PNG-m2"
+    assert result.detail == "2024-01-05_09"
+    assert (
+        frames.frame_path("E1", "2024-01-05_09", tmp_path).read_bytes() == b"PNGBYTES"
+    )
     state = read_state(state_path("E1", tmp_path))
-    assert state.last_microversion == "m2"
+    assert state.last_image_hash is not None
     assert state.display_name == "Drivetrain"
     assert state.document_name == "Robot 2026"
+    # First run cost: metadata + doc name + render.
+    assert (client.metadata_calls, client.doc_name_calls, client.rendered) == (1, 1, 1)
 
 
-def test_unchanged_skips(tmp_path) -> None:
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    write_state(state_path("E1", tmp_path), State(last_microversion="m2"))
-    client = FakeClient(history=hist)
-    [result] = run(_config(), client, at=_utc(2024, 1, 5, 9, 30), root=tmp_path)
+def test_unchanged_image_skips_and_costs_one_call(tmp_path) -> None:
+    # Pre-seed state with the fingerprint of the image the client will return.
+    img = b"SAME"
+    write_state(
+        state_path("E1", tmp_path),
+        State(
+            last_image_hash=frames.image_fingerprint(img),
+            element_type="assembly",
+            display_name="Drivetrain",
+            document_name="Robot 2026",
+        ),
+    )
+    client = FakeClient(image=img)
+    [result] = run(_config(), client, now=_utc(2024, 1, 5, 12), root=tmp_path)
     assert result.status == UNCHANGED
-    assert client.rendered == []  # never rendered
+    assert not frames.exists("E1", "2024-01-05_12", tmp_path)
+    # One render call, and no metadata re-fetch (already cached).
+    assert (client.metadata_calls, client.doc_name_calls, client.rendered) == (0, 0, 1)
 
 
-def test_unchanged_run_costs_only_one_api_call(tmp_path) -> None:
-    # The quota-critical path: an unchanged run must spend exactly one call (the
-    # history check) — no metadata, no document name, no render.
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    write_state(state_path("E1", tmp_path), State(last_microversion="m2"))
-    client = FakeClient(history=hist)
-    run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
-    assert client.history_calls == 1
-    assert client.metadata_calls == 0
-    assert client.doc_name_calls == 0
-    assert client.rendered == []
-
-
-def test_metadata_fetched_once_then_cached(tmp_path) -> None:
-    # First capture fetches metadata + doc name; a later capture reuses the cache,
-    # so a changed run costs only history + render (2 calls).
-    hist = {"D1": [Microversion("m1", _utc(2024, 1, 5, 9))]}
-    client = FakeClient(history=hist)
-    run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
-    assert client.metadata_calls == 1
-    assert client.doc_name_calls == 1
-
-    # A new microversion in a fresh slot -> a second capture, metadata already cached.
-    hist["D1"] = [Microversion("m2", _utc(2024, 1, 5, 15)), *hist["D1"]]
-    run(_config(), client, at=_utc(2024, 1, 5, 15), root=tmp_path)
-    assert client.metadata_calls == 1  # not re-fetched
-    assert client.doc_name_calls == 1  # not re-fetched
-    assert client.rendered == ["m1", "m2"]
+def test_changed_image_writes_new_frame(tmp_path) -> None:
+    write_state(
+        state_path("E1", tmp_path),
+        State(
+            last_image_hash=frames.image_fingerprint(b"OLD"),
+            element_type="assembly",
+            display_name="Drivetrain",
+        ),
+    )
+    client = FakeClient(image=b"NEW")
+    [result] = run(_config(), client, now=_utc(2024, 1, 5, 12), root=tmp_path)
+    assert result.status == CAPTURED
+    assert frames.frame_path("E1", "2024-01-05_12", tmp_path).read_bytes() == b"NEW"
+    assert read_state(state_path("E1", tmp_path)).last_image_hash == (
+        frames.image_fingerprint(b"NEW")
+    )
 
 
 def test_changed_but_slot_filled_skips(tmp_path) -> None:
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
     frames.write_frame("E1", "2024-01-05_09", b"existing", tmp_path)
-    client = FakeClient(history=hist)
-    [result] = run(_config(), client, at=_utc(2024, 1, 5, 9, 30), root=tmp_path)
+    write_state(
+        state_path("E1", tmp_path),
+        State(
+            last_image_hash=frames.image_fingerprint(b"OLD"), element_type="assembly"
+        ),
+    )
+    client = FakeClient(image=b"NEW")
+    [result] = run(_config(), client, now=_utc(2024, 1, 5, 9, 30), root=tmp_path)
     assert result.status == SLOT_FILLED
-    assert client.rendered == []
-    # Existing frame untouched.
     assert (
         frames.frame_path("E1", "2024-01-05_09", tmp_path).read_bytes() == b"existing"
     )
 
 
-def test_absent_at_t(tmp_path) -> None:
-    # Only microversion is newer than T -> nothing current at T.
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 12))]}
-    client = FakeClient(history=hist)
-    [result] = run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
-    assert result.status == ABSENT
-
-
-def test_t_is_floored_to_hour(tmp_path) -> None:
-    # A microversion created at 09:00 is current at the 09:00 mark recovered from 09:47.
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    client = FakeClient(history=hist)
+def test_quiet_hours_skip_with_zero_calls(tmp_path) -> None:
+    client = FakeClient()
+    # Quiet 3-9 UTC; run at 04:00 -> skipped, no render at all.
     [result] = run(
-        _config(), client, at=datetime(2024, 1, 5, 9, 47, tzinfo=UTC), root=tmp_path
+        _config(quiet=(3, 9)), client, now=_utc(2024, 1, 5, 4), root=tmp_path
+    )
+    assert result.status == QUIET
+    assert client.rendered == 0
+    assert client.metadata_calls == 0
+
+
+def test_outside_quiet_hours_runs(tmp_path) -> None:
+    client = FakeClient()
+    [result] = run(
+        _config(quiet=(3, 9)), client, now=_utc(2024, 1, 5, 12), root=tmp_path
     )
     assert result.status == CAPTURED
-    assert frames.exists("E1", "2024-01-05_09", tmp_path)
 
 
 def test_dry_run_writes_nothing(tmp_path) -> None:
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    client = FakeClient(history=hist)
+    client = FakeClient(image=b"IMG")
     [result] = run(
-        _config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path, dry_run=True
+        _config(), client, now=_utc(2024, 1, 5, 9), root=tmp_path, dry_run=True
     )
     assert result.status == CAPTURED
     assert "dry-run" in result.detail
     assert not frames.exists("E1", "2024-01-05_09", tmp_path)
-    assert read_state(state_path("E1", tmp_path)).last_microversion is None
+    assert read_state(state_path("E1", tmp_path)).last_image_hash is None
 
 
 def test_one_target_errors_other_succeeds(tmp_path) -> None:
     t_ok = _target(eid="OK", did="DOK")
     t_bad = _target(eid="BAD", did="DBAD")
-    hist = {
-        "DOK": [Microversion("m9", _utc(2024, 1, 5, 9))],
-        "DBAD": [Microversion("m1", _utc(2024, 1, 5, 9))],
-    }
 
     class HalfBroken(FakeClient):
-        def render_shaded_view(self, target, element_type, mid, **kw):
+        def render_shaded_view(self, target, element_type, **kw):
             if target.document_id == "DBAD":
+                self.rendered += 1
                 raise OnshapeAPIError(500, "render boom")
-            return super().render_shaded_view(target, element_type, mid, **kw)
+            return super().render_shaded_view(target, element_type, **kw)
 
-    client = HalfBroken(history=hist)
-    results = run(_config(t_ok, t_bad), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
+    client = HalfBroken(image=b"IMG")
+    results = run(_config(t_ok, t_bad), client, now=_utc(2024, 1, 5, 9), root=tmp_path)
     by_id = {r.element_id: r for r in results}
     assert by_id["OK"].status == CAPTURED
     assert by_id["BAD"].status == ERROR
@@ -201,9 +196,8 @@ def test_readme_index_updated_after_capture(tmp_path) -> None:
     (tmp_path / "README.md").write_text(
         "# Title\n<!-- targets:start -->\nold\n<!-- targets:end -->\n", encoding="utf-8"
     )
-    hist = {"D1": [Microversion("m2", _utc(2024, 1, 5, 9))]}
-    client = FakeClient(history=hist)
-    run(_config(), client, at=_utc(2024, 1, 5, 9), root=tmp_path)
+    client = FakeClient(image=b"IMG")
+    run(_config(), client, now=_utc(2024, 1, 5, 9), root=tmp_path)
     text = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "Robot 2026 / Drivetrain" in text
     assert "frames/E1/" in text

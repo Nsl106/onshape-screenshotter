@@ -1,19 +1,16 @@
-"""Tests for the pure slot logic (no I/O, no network)."""
+"""Tests for the pure slot/time logic (no I/O, no network)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
 
-from progressor.slots import (
-    Microversion,
-    floor_to_hour,
-    microversion_at,
-    slot_key,
-)
+import pytest
+
+from progressor.slots import is_quiet, resolve_timezone, slot_key
 
 
-def _utc(y, mo, d, h=0, mi=0, s=0) -> datetime:
-    return datetime(y, mo, d, h, mi, s, tzinfo=UTC)
+def _utc(y, mo, d, h=0, mi=0) -> datetime:
+    return datetime(y, mo, d, h, mi, tzinfo=UTC)
 
 
 # --- slot_key -------------------------------------------------------------------
@@ -24,7 +21,6 @@ def test_slot_key_format() -> None:
 
 
 def test_slot_key_normalizes_other_timezone_to_utc() -> None:
-    # 09:30 at +02:00 is 07:30 UTC -> hour bucket 07.
     plus2 = timezone(timedelta(hours=2))
     t = datetime(2024, 1, 5, 9, 30, tzinfo=plus2)
     assert slot_key(t) == "2024-01-05_07"
@@ -36,59 +32,54 @@ def test_slot_key_treats_naive_as_utc() -> None:
 
 def test_slot_keys_sort_chronologically() -> None:
     keys = [slot_key(_utc(2024, 1, 5, h)) for h in (23, 0, 9)]
-    assert sorted(keys) == [
-        "2024-01-05_00",
-        "2024-01-05_09",
-        "2024-01-05_23",
-    ]
+    assert sorted(keys) == ["2024-01-05_00", "2024-01-05_09", "2024-01-05_23"]
 
 
-# --- floor_to_hour --------------------------------------------------------------
+# --- resolve_timezone -----------------------------------------------------------
 
 
-def test_floor_to_hour() -> None:
-    assert floor_to_hour(_utc(2024, 1, 5, 14, 23, 45)) == _utc(2024, 1, 5, 14)
+def test_resolve_utc() -> None:
+    assert resolve_timezone("UTC") is UTC
+    assert resolve_timezone("utc") is UTC
 
 
-# --- microversion_at ------------------------------------------------------------
+def test_resolve_named_zone() -> None:
+    # A real zone resolves and applies the expected offset.
+    tz = resolve_timezone("America/New_York")
+    # 2024-01-05 12:00 UTC is 07:00 EST.
+    assert _utc(2024, 1, 5, 12).astimezone(tz).hour == 7
 
 
-def _history() -> list[Microversion]:
-    # Newest-first, as the API returns it.
-    return [
-        Microversion("m3", _utc(2024, 1, 3)),
-        Microversion("m2", _utc(2024, 1, 2)),
-        Microversion("m1", _utc(2024, 1, 1)),
-    ]
+def test_resolve_bad_zone_raises() -> None:
+    with pytest.raises(ValueError, match="unknown timezone"):
+        resolve_timezone("Mars/Olympus_Mons")
 
 
-def test_microversion_at_returns_latest_at_or_before_t() -> None:
-    mv = microversion_at(_history(), _utc(2024, 1, 2, 12))
-    assert mv is not None and mv.id == "m2"
+# --- is_quiet -------------------------------------------------------------------
 
 
-def test_microversion_at_exact_boundary_is_inclusive() -> None:
-    mv = microversion_at(_history(), _utc(2024, 1, 2))
-    assert mv is not None and mv.id == "m2"
+def test_quiet_disabled_when_start_equals_end() -> None:
+    assert is_quiet(_utc(2024, 1, 5, 4), "UTC", 0, 0) is False
 
 
-def test_microversion_at_before_first_returns_none() -> None:
-    assert microversion_at(_history(), _utc(2023, 12, 31)) is None
+def test_quiet_simple_window() -> None:
+    # Quiet 03:00-09:00 UTC.
+    assert is_quiet(_utc(2024, 1, 5, 3), "UTC", 3, 9) is True
+    assert is_quiet(_utc(2024, 1, 5, 8), "UTC", 3, 9) is True
+    assert is_quiet(_utc(2024, 1, 5, 9), "UTC", 3, 9) is False  # end exclusive
+    assert is_quiet(_utc(2024, 1, 5, 2), "UTC", 3, 9) is False
 
 
-def test_microversion_at_empty_history_returns_none() -> None:
-    assert microversion_at([], _utc(2024, 1, 2)) is None
+def test_quiet_window_wraps_midnight() -> None:
+    # Quiet 22:00-06:00.
+    assert is_quiet(_utc(2024, 1, 5, 23), "UTC", 22, 6) is True
+    assert is_quiet(_utc(2024, 1, 5, 2), "UTC", 22, 6) is True
+    assert is_quiet(_utc(2024, 1, 5, 6), "UTC", 22, 6) is False
+    assert is_quiet(_utc(2024, 1, 5, 12), "UTC", 22, 6) is False
 
 
-def test_microversion_at_short_circuits_lazy_iterator() -> None:
-    consumed: list[str] = []
-
-    def lazy():
-        for mv in _history():
-            consumed.append(mv.id)
-            yield mv
-
-    mv = microversion_at(lazy(), _utc(2024, 1, 3, 12))
-    assert mv is not None and mv.id == "m3"
-    # Only the first (newest) entry should have been pulled.
-    assert consumed == ["m3"]
+def test_quiet_respects_timezone() -> None:
+    # 08:00 UTC is 03:00 in New York; a 1-9 Eastern quiet window should be quiet.
+    assert is_quiet(_utc(2024, 1, 5, 8), "America/New_York", 1, 9) is True
+    # 16:00 UTC is 11:00 Eastern -> not quiet.
+    assert is_quiet(_utc(2024, 1, 5, 16), "America/New_York", 1, 9) is False

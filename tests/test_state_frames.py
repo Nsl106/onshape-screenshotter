@@ -13,13 +13,13 @@ from progressor.state import State, read_state, state_path, write_state
 def test_read_missing_state_returns_empty(tmp_path) -> None:
     state = read_state(state_path("E", tmp_path))
     assert state == State()
-    assert state.last_microversion is None
+    assert state.last_image_hash is None
 
 
 def test_write_then_read_roundtrip(tmp_path) -> None:
     path = state_path("E", tmp_path)
     written = State(
-        last_microversion="m9",
+        last_image_hash="abc123",
         last_captured_at="2024-01-01T00:00:00+00:00",
         element_type="assembly",
         display_name="Drivetrain",
@@ -32,7 +32,7 @@ def test_write_then_read_roundtrip(tmp_path) -> None:
 def test_write_creates_state_directory(tmp_path) -> None:
     path = state_path("E", tmp_path)
     assert not path.parent.exists()
-    write_state(path, State(last_microversion="m1"))
+    write_state(path, State(last_image_hash="h1"))
     assert path.exists()
 
 
@@ -47,8 +47,8 @@ def test_read_corrupt_state_raises(tmp_path) -> None:
 def test_read_ignores_unknown_keys(tmp_path) -> None:
     path = state_path("E", tmp_path)
     path.parent.mkdir(parents=True)
-    path.write_text('{"last_microversion": "m1", "future_field": 42}', encoding="utf-8")
-    assert read_state(path).last_microversion == "m1"
+    path.write_text('{"last_image_hash": "h1", "future_field": 42}', encoding="utf-8")
+    assert read_state(path).last_image_hash == "h1"
 
 
 # --- frames ---------------------------------------------------------------------

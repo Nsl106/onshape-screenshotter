@@ -19,6 +19,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .slots import resolve_timezone
+
 # A standard Onshape document URL embeds three IDs and a workspace/version/microversion
 # selector, e.g.
 #   https://cad.onshape.com/documents/{did}/w/{wid}/e/{eid}
@@ -72,6 +74,10 @@ class Settings:
         timelapse_fps: Frames per second for the stitched timelapse video.
         keepalive: Whether the workflow commits a monthly no-op to defeat the
             60-day scheduled-workflow auto-disable.
+        timezone: IANA timezone name the quiet-hours window is interpreted in.
+        quiet_hours_start: Local hour (0-23) the quiet window begins (inclusive).
+        quiet_hours_end: Local hour (0-23) the quiet window ends (exclusive). Equal
+            to ``quiet_hours_start`` means no quiet window.
     """
 
     image_width: int
@@ -79,6 +85,9 @@ class Settings:
     view: str
     timelapse_fps: int
     keepalive: bool
+    timezone: str
+    quiet_hours_start: int
+    quiet_hours_end: int
 
 
 @dataclass(frozen=True)
@@ -97,6 +106,9 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "view": "isometric",
     "timelapse_fps": 10,
     "keepalive": True,
+    "timezone": "UTC",
+    "quiet_hours_start": 0,
+    "quiet_hours_end": 0,
 }
 
 
@@ -142,6 +154,26 @@ def _require_str(raw: dict, key: str, where: str) -> str:
 
 def _coerce_setting(key: str, value: object) -> object:
     """Validate and coerce a single ``[settings]`` value against its default's type."""
+    if key in ("quiet_hours_start", "quiet_hours_end"):
+        # An hour-of-day, so 0 is valid (unlike the positive-size settings below).
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"[settings]: '{key}' must be a whole number 0-23.")
+        if not 0 <= value <= 23:
+            raise ConfigError(f"[settings]: '{key}' must be between 0 and 23.")
+        return value
+    if key == "timezone":
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError("[settings]: 'timezone' must be a non-empty string.")
+        tz = value.strip()
+        try:
+            resolve_timezone(tz)
+        except ValueError as exc:
+            raise ConfigError(
+                f"[settings]: 'timezone' {exc}. Use an IANA name like "
+                '"America/New_York" or "UTC".'
+            ) from exc
+        return tz
+
     default = _SETTINGS_DEFAULTS[key]
     if isinstance(default, bool):
         if not isinstance(value, bool):

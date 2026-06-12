@@ -1,9 +1,10 @@
 """Per-target change-detection state: ``state/<element_id>.json``.
 
-Each target keeps a small JSON file recording the last microversion it captured
-(so the forward job can skip unchanged documents) plus cached metadata that isn't
-in the pasted URL — the element's type and display name — so we don't re-fetch it
-from the API every run, and the README index has names to show even between runs.
+Each target keeps a small JSON file recording the fingerprint of the last frame it
+saved (so a run can skip writing a duplicate when the CAD hasn't changed) plus
+cached metadata that isn't in the pasted URL — the element's type and display name
+— so we don't re-fetch it from the API every run, and the README index has names to
+show even between runs.
 
 No network access; pure filesystem I/O. A missing file is the normal first-run
 case and yields an empty ``State``.
@@ -21,15 +22,16 @@ class State:
     """The persisted per-target state.
 
     Attributes:
-        last_microversion: Id of the most recently captured microversion, or None
-            on first run. The forward job compares against this to detect change.
+        last_image_hash: Fingerprint of the most recently saved frame, or None on
+            first run. A run compares the freshly rendered image against this to
+            decide whether the CAD changed.
         last_captured_at: ISO-8601 UTC timestamp of the last capture (for humans).
         element_type: Cached ``"assembly"``/``"partstudio"`` from element metadata.
         display_name: Cached element (tab) name for the README index.
         document_name: Cached document name for extra context in the README index.
     """
 
-    last_microversion: str | None = None
+    last_image_hash: str | None = None
     last_captured_at: str | None = None
     element_type: str | None = None
     display_name: str | None = None

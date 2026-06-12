@@ -77,6 +77,9 @@ def test_settings_defaults_applied_when_absent() -> None:
     assert cfg.settings.view == "isometric"
     assert cfg.settings.timelapse_fps == 10
     assert cfg.settings.keepalive is True
+    assert cfg.settings.timezone == "UTC"
+    assert cfg.settings.quiet_hours_start == 0
+    assert cfg.settings.quiet_hours_end == 0
 
 
 def test_missing_url_raises() -> None:
@@ -147,4 +150,35 @@ def test_unknown_setting_raises() -> None:
     data = _valid_data()
     data["settings"]["bogus"] = 1
     with pytest.raises(ConfigError, match="unknown"):
+        parse_config(data)
+
+
+def test_quiet_hours_and_timezone_parse() -> None:
+    data = _valid_data()
+    data["settings"].update(
+        timezone="America/New_York", quiet_hours_start=1, quiet_hours_end=9
+    )
+    cfg = parse_config(data)
+    assert cfg.settings.timezone == "America/New_York"
+    assert cfg.settings.quiet_hours_start == 1
+    assert cfg.settings.quiet_hours_end == 9
+
+
+def test_quiet_hour_zero_is_allowed() -> None:
+    data = _valid_data()
+    data["settings"]["quiet_hours_start"] = 0
+    assert parse_config(data).settings.quiet_hours_start == 0
+
+
+def test_quiet_hour_out_of_range_raises() -> None:
+    data = _valid_data()
+    data["settings"]["quiet_hours_end"] = 24
+    with pytest.raises(ConfigError, match="between 0 and 23"):
+        parse_config(data)
+
+
+def test_bad_timezone_raises() -> None:
+    data = _valid_data()
+    data["settings"]["timezone"] = "Mars/Olympus_Mons"
+    with pytest.raises(ConfigError, match="timezone"):
         parse_config(data)

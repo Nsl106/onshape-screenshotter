@@ -3,8 +3,10 @@
 Wraps the subset of the Onshape REST API this tool needs:
 
 - list a document's elements (to learn a target's type and display name),
-- page through document history (to find the microversion current at an instant),
-- render a shaded-view PNG at a specific microversion.
+- render a shaded-view PNG of the current workspace state.
+
+That's one render call per capture run; change detection happens locally by
+fingerprinting the image, so no history lookup is needed.
 
 All requests use HTTP Basic auth with an API key pair read from environment
 variables. Credentials are never placed in log lines or exception messages.
@@ -12,8 +14,6 @@ variables. Credentials are never placed in log lines or exception messages.
 API details verified against the Onshape developer docs and the published OpenAPI
 spec (onshape-public/onshape-clients):
 - Base path ``/api/v10`` on ``https://cad.onshape.com``.
-- ``GET /documents/d/{did}/{wm}/{wmid}/documenthistory`` — offset/limit paging,
-  newest-first, each entry has ``microversionId`` and ``date``.
 - ``GET /{partstudios|assemblies}/d/{did}/{wvm}/{wvmid}/e/{eid}/shadedviews`` —
   params ``viewMatrix`` (named view or 12-number matrix), ``outputWidth``,
   ``outputHeight``, ``pixelSize`` (0 fits the model to the frame), ``edges``;
@@ -33,27 +33,14 @@ import base64
 import os
 import random
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 import requests
 
 from .config import Target
-from .slots import Microversion
 
 DEFAULT_BASE_URL = "https://cad.onshape.com/api/v10"
-
-# Onshape's document-history endpoint caps the page size; 20 is the documented
-# maximum, so we page in 20s and stop when a short page signals exhaustion.
-_HISTORY_PAGE_SIZE = 20
-
-# Hard ceiling on history paging. The capture job resolves the microversion at the
-# current hour mark, which sits within the first page or two, so this is generous
-# headroom that exists only to bound pathological cases (a brand-new document whose
-# entire history is newer than the target instant, or an `--at` far in the past)
-# and protect the account's annual API quota.
-_MAX_HISTORY_PAGES = 50
 
 # Map Onshape's elementType enum to our config vocabulary and the URL collection.
 _ELEMENT_TYPE_MAP = {"PARTSTUDIO": "partstudio", "ASSEMBLY": "assembly"}
@@ -121,15 +108,6 @@ def resolve_view(view: str) -> str:
     value (a native Onshape view name or a raw 12-number matrix) is passed through.
     """
     return _NAMED_VIEW_MATRICES.get(view.strip().lower(), view)
-
-
-def _parse_timestamp(raw: str) -> datetime:
-    """Parse an Onshape ISO-8601 timestamp into a timezone-aware UTC datetime."""
-    text = raw.strip().replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(text)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 class OnshapeClient:
@@ -304,75 +282,23 @@ class OnshapeClient:
         response = self._request("GET", f"/documents/{document_id}")
         return response.json().get("name") or document_id
 
-    def iter_document_history(
-        self, document_id: str, workspace_id: str
-    ) -> Iterator[Microversion]:
-        """Yield a workspace's microversions newest-first, paging lazily.
-
-        Pages the documenthistory endpoint in blocks of ``_HISTORY_PAGE_SIZE`` and
-        yields one ``Microversion`` per entry. Because it's a generator, the capture
-        job stops consuming as soon as it finds the microversion current at its
-        target instant — normally within the first page, since that instant is the
-        current hour mark.
-
-        Two safety bounds keep this from ever running away (Onshape mints a
-        microversion per edit, so histories are effectively unbounded, and the
-        annual API quota is precious): paging stops after ``_MAX_HISTORY_PAGES``,
-        and after a page that introduces no new microversion id (which would mean
-        the endpoint is ignoring ``offset`` — paging further would just burn quota
-        on duplicates).
-
-        Raises:
-            OnshapeAuthError / OnshapeAPIError: on request failure.
-        """
-        path = f"/documents/d/{document_id}/w/{workspace_id}/documenthistory"
-        seen: set[str] = set()
-        for page_index in range(_MAX_HISTORY_PAGES):
-            response = self._request(
-                "GET",
-                path,
-                params={
-                    "offset": page_index * _HISTORY_PAGE_SIZE,
-                    "limit": _HISTORY_PAGE_SIZE,
-                },
-            )
-            page = response.json()
-            if not page:
-                return
-            new_this_page = 0
-            for entry in page:
-                # Be tolerant of field-name drift across API versions: the id is
-                # microversionId, the timestamp is date (older spec text: createdAt).
-                mid = entry.get("microversionId") or entry.get("microversion")
-                raw_date = entry.get("date") or entry.get("createdAt")
-                if not mid or not raw_date or mid in seen:
-                    continue
-                seen.add(mid)
-                new_this_page += 1
-                yield Microversion(id=mid, created_at=_parse_timestamp(raw_date))
-            # A full page that advanced nothing means offset isn't paging — stop
-            # rather than loop forever on the same entries.
-            if new_this_page == 0 or len(page) < _HISTORY_PAGE_SIZE:
-                return
-
     def render_shaded_view(
         self,
         target: Target,
         element_type: str,
-        microversion_id: str,
         *,
         view: str,
         width: int,
         height: int,
         pixel_size: float = 0.0,
     ) -> bytes:
-        """Render a shaded-view PNG of a target at a specific microversion.
+        """Render a shaded-view PNG of a target's current workspace state.
 
-        Always renders on the ``m/{microversion_id}`` path so the image reflects the
-        document state at that exact point in history — what the capture job relies
-        on so a late run still records the state as of its hour mark. ``pixel_size``
-        of 0 lets Onshape fit the whole model to the frame, keeping framing
-        consistent as the model grows.
+        Renders on the ``w/{workspace}`` path — the live state right now — in a
+        single API call. Change detection is done afterward by fingerprinting the
+        returned image, so no separate history lookup is needed. ``pixel_size`` of 0
+        lets Onshape fit the whole model to the frame, keeping framing consistent as
+        the model grows.
 
         Args:
             element_type: ``"partstudio"`` or ``"assembly"`` (from element metadata).
@@ -385,7 +311,7 @@ class OnshapeClient:
         """
         collection = _COLLECTION[element_type]
         path = (
-            f"/{collection}/d/{target.document_id}/m/{microversion_id}"
+            f"/{collection}/d/{target.document_id}/w/{target.workspace_id}"
             f"/e/{target.element_id}/shadedviews"
         )
         params = {
@@ -401,8 +327,7 @@ class OnshapeClient:
         if not images:
             raise OnshapeAPIError(
                 502,
-                f"Onshape returned no image for microversion {microversion_id} "
-                f"of element {target.element_id}.",
+                f"Onshape returned no image for element {target.element_id}.",
             )
         try:
             return base64.b64decode(images[0])

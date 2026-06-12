@@ -142,68 +142,6 @@ def test_get_element_metadata_missing_element_raises() -> None:
         client.get_element_metadata(_TARGET)
 
 
-# --- history paging -------------------------------------------------------------
-
-
-def _history_page(n: int, start: int) -> list[dict]:
-    return [
-        {"microversionId": f"m{start + i}", "date": "2024-01-01T00:00:00Z"}
-        for i in range(n)
-    ]
-
-
-def test_history_pages_until_short_page() -> None:
-    # Full page of 20, then a short page of 3 -> iteration stops after the short page.
-    responses = [
-        FakeResponse(200, _history_page(20, 0)),
-        FakeResponse(200, _history_page(3, 20)),
-    ]
-    client, session = _client(responses)
-    mvs = list(client.iter_document_history("D", "W"))
-    assert len(mvs) == 23
-    assert mvs[0].id == "m0"
-    assert session.calls[0]["params"]["offset"] == 0
-    assert session.calls[1]["params"]["offset"] == 20
-
-
-def test_history_stops_on_empty_page() -> None:
-    responses = [
-        FakeResponse(200, _history_page(20, 0)),
-        FakeResponse(200, []),
-    ]
-    client, _ = _client(responses)
-    mvs = list(client.iter_document_history("D", "W"))
-    assert len(mvs) == 20
-
-
-def test_history_stops_if_offset_ignored() -> None:
-    # Simulate an endpoint that ignores offset and returns the same full page
-    # forever. The pager must stop after the second page adds no new ids, not loop.
-    same_page = _history_page(20, 0)
-    responses = [FakeResponse(200, same_page) for _ in range(10)]
-    client, session = _client(responses)
-    mvs = list(client.iter_document_history("D", "W"))
-    assert len(mvs) == 20  # only the 20 unique ids, no duplicates
-    assert len(session.calls) == 2  # stopped after detecting no progress
-
-
-def test_history_is_lazy() -> None:
-    # A consumer that stops early must not trigger the second page fetch.
-    responses = [FakeResponse(200, _history_page(20, 0))]
-    client, session = _client(responses)
-    first = next(client.iter_document_history("D", "W"))
-    assert first.id == "m0"
-    assert len(session.calls) == 1  # only one page requested
-
-
-def test_history_parses_utc_timestamp() -> None:
-    page = [{"microversionId": "m", "date": "2024-06-01T12:00:00+02:00"}]
-    client, _ = _client([FakeResponse(200, page)])
-    mv = next(client.iter_document_history("D", "W"))
-    assert mv.created_at.utcoffset().total_seconds() == 0
-    assert mv.created_at.hour == 10  # 12:00 +02:00 -> 10:00 UTC
-
-
 # --- retry / error handling -----------------------------------------------------
 
 
@@ -264,11 +202,12 @@ def test_render_shaded_view_decodes_base64_png() -> None:
     b64 = base64.b64encode(png).decode()
     client, session = _client([FakeResponse(200, {"images": [b64]})])
     out = client.render_shaded_view(
-        _TARGET, "assembly", "MV1", view="isometric", width=800, height=600
+        _TARGET, "assembly", view="isometric", width=800, height=600
     )
     assert out == png
     call = session.calls[0]
-    assert "/assemblies/d/D/m/MV1/e/E/shadedviews" in call["url"]
+    # Renders the current workspace state (w/), not a past microversion.
+    assert "/assemblies/d/D/w/W/e/E/shadedviews" in call["url"]
     assert call["params"]["outputWidth"] == 800
     assert call["params"]["outputHeight"] == 600
     assert call["params"]["pixelSize"] == 0.0
@@ -278,15 +217,11 @@ def test_render_shaded_view_decodes_base64_png() -> None:
 def test_render_shaded_view_partstudio_uses_partstudios_collection() -> None:
     b64 = base64.b64encode(b"x").decode()
     client, session = _client([FakeResponse(200, {"images": [b64]})])
-    client.render_shaded_view(
-        _TARGET, "partstudio", "MV1", view="front", width=10, height=10
-    )
-    assert "/partstudios/d/D/m/MV1/e/E/shadedviews" in session.calls[0]["url"]
+    client.render_shaded_view(_TARGET, "partstudio", view="front", width=10, height=10)
+    assert "/partstudios/d/D/w/W/e/E/shadedviews" in session.calls[0]["url"]
 
 
 def test_render_shaded_view_empty_images_raises() -> None:
     client, _ = _client([FakeResponse(200, {"images": []})])
     with pytest.raises(OnshapeAPIError, match="no image"):
-        client.render_shaded_view(
-            _TARGET, "assembly", "MV1", view="iso", width=10, height=10
-        )
+        client.render_shaded_view(_TARGET, "assembly", view="iso", width=10, height=10)

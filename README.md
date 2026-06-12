@@ -80,8 +80,9 @@ url = "https://cad.onshape.com/documents/abc123…/w/def456…/e/ghi789…"
 That's the only required edit — the document, workspace, and element are all read
 from that link, and the name and type are looked up automatically. To track more
 than one document, add another `[[targets]]` block with its own `url`. You can also
-adjust image size, view angle, and frame rate in the `[settings]` section; each
-option is explained inline in the file.
+adjust image size, view angle, frame rate, and **quiet hours** (a `timezone` plus a
+nightly window to skip, saving API calls) in the `[settings]` section; each option
+is explained inline in the file.
 
 ### 5. Turn on Actions
 
@@ -115,28 +116,30 @@ calls per _year_, per account:**
 | Professional | 5,000 / user | ~13.7 |
 | Enterprise | 10,000 / user | ~27 |
 
-Each Capture run costs about **1 call** (just checking whether the CAD changed) and
-**2 calls** when it actually saves a frame. So per tracked document:
+Each Capture run costs **exactly one API call** per tracked document — it renders
+the current model and decides locally whether it changed — so:
 
 ```
-calls/year  ≈  (runs per day) × 365 × ~1.3
+calls/year  ≈  (runs per day) × 365 × (number of documents)
 ```
 
-At the default **every 6 hours** (4 runs/day) that's **~1,900 calls/year for one
-document** — which fits an Education plan with a little headroom, but means **one
-tracked document per Education account** is the realistic limit. To track more, or
-to stretch the quota, raise the cron interval in
+Runs that fall inside your configured **quiet hours** cost nothing, so the real
+figure is lower. At the default **every 6 hours** (4 runs/day) that's **~1,460
+calls/year for one document** — comfortably inside an Education plan, with room for
+a second document or a finer interval. To change cadence, edit the cron in
 [`.github/workflows/capture.yml`](.github/workflows/capture.yml):
 
 | Cron | Runs/day | ≈ Calls/year (1 doc) | Good for |
 | ---- | -------- | -------------------- | -------- |
-| `0 */12 * * *` | 2 | ~950 | Education, or 2 docs |
-| `0 */6 * * *` (default) | 4 | ~1,900 | Education, 1 doc |
-| `0 */3 * * *` | 8 | ~3,800 | Professional / Enterprise |
+| `0 */12 * * *` | 2 | ~730 | Education, 2–3 docs |
+| `0 */6 * * *` (default) | 4 | ~1,460 | Education, 1–2 docs |
+| `0 */3 * * *` | 8 | ~2,920 | Education (1 doc, with quiet hours) / Pro |
 
-A few frames a day is plenty for a season timelapse: every-6-hours over a ~4-month
-build season is 400–500 frames ≈ a 40–50-second video at 10 fps. If you need to
-reset or raise your limit, contact Onshape (`api-support@onshape.com`).
+Set **quiet hours** in `config.toml` (e.g. overnight) to skip runs when the CAD
+won't change and stretch the budget further. A few frames a day is plenty for a
+season timelapse: every-6-hours over a ~4-month build season is 400–500 frames ≈ a
+40–50-second video at 10 fps. To raise your limit, contact Onshape
+(`api-support@onshape.com`).
 
 ## Troubleshooting
 

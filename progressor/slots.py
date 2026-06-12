@@ -1,78 +1,64 @@
-"""Pure slot logic for the capture job.
+"""Pure time/slot logic for the capture job. No I/O, no network — unit-testable.
 
-Holds the ``Microversion`` domain type plus the pure functions at the heart of the
-anchoring + dedup design: the canonical slot key for an instant and the resolver
-for "the microversion current at instant T". No I/O, no network — fully
-unit-testable. (The ``Microversion`` type lives here so the networked client and
-the pure logic share it without ``slots`` depending on ``requests``.)
+Provides the canonical slot key for an instant, plus the quiet-hours gate that lets
+the scheduled job skip runs (and spend zero API calls) during a window when the CAD
+won't be changing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import UTC, datetime
-
-
-@dataclass(frozen=True)
-class Microversion:
-    """One immutable point in a document's edit history.
-
-    Attributes:
-        id: The Onshape microversion id (``microversionId``), addressable via the
-            ``m/{id}`` path.
-        created_at: When the microversion was created, as a timezone-aware UTC
-            datetime (parsed from the API's ``date`` field).
-    """
-
-    id: str
-    created_at: datetime
+from datetime import UTC, datetime, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _to_utc(t: datetime) -> datetime:
     """Normalize any datetime to timezone-aware UTC.
 
-    A naive datetime is assumed to already be in UTC; an aware one is converted.
-    This keeps every slot key and comparison anchored to UTC regardless of the
-    caller's timezone (GitHub runners, local testing, ``--at`` overrides).
+    A naive datetime is assumed to already be in UTC; an aware one is converted, so
+    every slot key is anchored to UTC regardless of the caller's timezone.
     """
     if t.tzinfo is None:
         return t.replace(tzinfo=UTC)
     return t.astimezone(UTC)
 
 
-def floor_to_hour(t: datetime) -> datetime:
-    """Return ``t`` (normalized to UTC) truncated to the top of its hour."""
-    u = _to_utc(t)
-    return u.replace(minute=0, second=0, microsecond=0)
-
-
 def slot_key(t: datetime) -> str:
     """Return the canonical ``YYYY-MM-DD_HH`` slot key for instant ``t`` (UTC).
 
-    This is the single source of truth for a frame's filename. The capture job
-    derives it from its target instant ``T`` — never from a microversion's own
-    timestamp or from wall-clock run time — so frames share one ordered,
-    collision-free naming scheme. Slot keys also sort chronologically as strings.
+    This is the single source of truth for a frame's filename, derived from the
+    run's wall-clock hour. Slot keys sort chronologically as plain strings, so the
+    timelapse stitcher can order frames lexicographically.
     """
     return _to_utc(t).strftime("%Y-%m-%d_%H")
 
 
-def microversion_at(
-    history: Iterable[Microversion], t: datetime
-) -> Microversion | None:
-    """Return the microversion that was current at instant ``t``.
+def resolve_timezone(name: str) -> tzinfo:
+    """Resolve an IANA timezone name (e.g. ``"America/New_York"``) to a tzinfo.
 
-    That is the latest microversion whose ``created_at <= t``. ``history`` must be
-    ordered newest-first (as the API returns it), so the first qualifying entry is
-    the answer and the rest of a lazy iterator is never consumed — letting the
-    forward job short-circuit instead of paging full history each hour.
+    ``"UTC"`` is handled without consulting the system tz database so the default
+    always works even on minimal images.
 
-    Returns ``None`` when no microversion existed at or before ``t`` (the document
-    didn't exist yet), signaling the caller to skip that slot.
+    Raises:
+        ValueError: if the name isn't a known timezone.
     """
-    cutoff = _to_utc(t)
-    for mv in history:
-        if mv.created_at <= cutoff:
-            return mv
-    return None
+    if name.strip().upper() == "UTC":
+        return UTC
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown timezone '{name}'") from exc
+
+
+def is_quiet(now: datetime, tz_name: str, start_hour: int, end_hour: int) -> bool:
+    """Return True if ``now`` falls in the configured quiet-hours window.
+
+    Hours are interpreted in ``tz_name`` local time, as ``[start_hour, end_hour)``.
+    A window that wraps midnight (``start_hour > end_hour``, e.g. 22→6) is handled.
+    ``start_hour == end_hour`` means the window is disabled (never quiet).
+    """
+    if start_hour == end_hour:
+        return False
+    local_hour = _to_utc(now).astimezone(resolve_timezone(tz_name)).hour
+    if start_hour < end_hour:
+        return start_hour <= local_hour < end_hour
+    return local_hour >= start_hour or local_hour < end_hour

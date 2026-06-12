@@ -8,6 +8,14 @@ image_height = 1024           # px
 view = "isometric"            # a named view, or 12 space-separated numbers for a view matrix
 timelapse_fps = 10            # frames per second in the rendered timelapse video
 
+# Quiet hours: skip scheduled runs during a window when your CAD won't change (e.g.
+# overnight), spending zero API calls then. Hours are in `timezone` local time,
+# 0-23, as start (inclusive) to end (exclusive). Leave start == end to disable.
+# Example — skip 1am to 9am Eastern:  timezone="America/New_York", start=1, end=9.
+timezone = "UTC"              # IANA timezone name (e.g. "America/New_York")
+quiet_hours_start = 0         # local hour the quiet window begins (0-23)
+quiet_hours_end   = 0         # local hour it ends; equal to start = no quiet window
+
 # keepalive: GitHub automatically DISABLES a scheduled workflow after 60 days with
 # no repo activity. During build season this never triggers (frames are committed
 # as your CAD changes), but in the quiet offseason it can. When true, the capture
