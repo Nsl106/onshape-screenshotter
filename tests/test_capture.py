@@ -31,7 +31,10 @@ def _target(eid="E1", did="D1", wid="W1") -> Target:
     )
 
 
-def _config(*targets: Target, capture_hours=(), tz="UTC") -> Config:
+_ALL_HOURS = tuple(range(24))  # capture at any hour, for tests that aren't gating
+
+
+def _config(*targets: Target, capture_hours=_ALL_HOURS, tz="UTC") -> Config:
     settings = Settings(
         image_width=64,
         image_height=64,

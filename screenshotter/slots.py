@@ -54,11 +54,12 @@ def should_capture(now: datetime, tz_name: str, capture_hours: Iterable[int]) ->
     """Return True if ``now``'s local hour is one the team wants a screenshot at.
 
     ``capture_hours`` is a set of local hours (0-23) interpreted in ``tz_name``. An
-    empty collection means "every scheduled run" (no hour filtering). The scheduled
-    workflow wakes hourly and calls this to decide whether to spend an API call.
+    empty collection means "take no screenshots" — capture is paused, no API calls.
+    The scheduled workflow wakes hourly and calls this to decide whether to spend a
+    call.
     """
     hours = set(capture_hours)
     if not hours:
-        return True
+        return False
     local_hour = _to_utc(now).astimezone(resolve_timezone(tz_name)).hour
     return local_hour in hours

@@ -66,9 +66,10 @@ def test_capture_only_at_listed_hours() -> None:
     assert should_capture(_utc(2024, 1, 5, 0), "UTC", hours) is False
 
 
-def test_empty_capture_hours_means_every_run() -> None:
-    assert should_capture(_utc(2024, 1, 5, 3), "UTC", []) is True
-    assert should_capture(_utc(2024, 1, 5, 17), "UTC", ()) is True
+def test_empty_capture_hours_means_never() -> None:
+    # Empty list pauses capture entirely — no screenshot at any hour.
+    assert should_capture(_utc(2024, 1, 5, 3), "UTC", []) is False
+    assert should_capture(_utc(2024, 1, 5, 17), "UTC", ()) is False
 
 
 def test_capture_hours_respect_timezone() -> None:

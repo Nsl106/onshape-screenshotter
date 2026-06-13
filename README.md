@@ -133,10 +133,13 @@ a second document. Tune `capture_hours` in [`config.toml`](config.toml):
 | `[12, 20]` | 2 | ~730 | Education, 2–3 docs |
 | `[8, 12, 16, 20]` (default) | 4 | ~1,460 | Education, 1–2 docs |
 | `[8, 11, 14, 17, 20, 23]` | 6 | ~2,190 | Education, 1 doc |
+| `[]` (empty) | 0 | 0 | pause capture (offseason) |
 
-A few frames a day is plenty for a season timelapse: 4/day over a ~4-month build
-season is 400–500 frames ≈ a 40–50-second video at 10 fps. To raise your limit,
-contact Onshape (`api-support@onshape.com`).
+Setting `capture_hours = []` pauses capture entirely — no screenshots, no API calls
+— handy in the offseason without disabling Actions. A few frames a day is plenty
+for a season timelapse: 4/day over a ~4-month build season is 400–500 frames ≈ a
+40–50-second video at 10 fps. To raise your limit, contact Onshape
+(`api-support@onshape.com`).
 
 ## Troubleshooting
 
@@ -149,8 +152,8 @@ contact Onshape (`api-support@onshape.com`).
   pauses and retries automatically — nothing to do.
 - **“annual API-call quota … is used up (HTTP 402).”** Separate from 429, Onshape
   caps how many API calls an account may make per *year* (see [API budget](#api-budget)).
-  If you hit it, your cron interval is too aggressive for your plan or your tracking
-  too many documents — raise the interval in `capture.yml` or drop a target. It
+  If you hit it, you have too many `capture_hours` for your plan, or you're tracking
+  too many documents — shorten `capture_hours` in `config.toml` or drop a target. It
   resets annually, and more calls can be requested from Onshape
   (api-support@onshape.com).
 - **“Onshape rejected the API credentials.”** Double-check the two secret names are

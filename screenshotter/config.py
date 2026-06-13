@@ -76,7 +76,7 @@ class Settings:
             60-day scheduled-workflow auto-disable.
         timezone: IANA timezone name the capture hours are interpreted in.
         capture_hours: Local hours (0-23) to take a screenshot at. One API call per
-            hour listed. Empty means capture on every scheduled run.
+            hour listed. Empty means take no screenshots (capture paused).
     """
 
     image_width: int
