@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from progressor.slots import is_quiet, resolve_timezone, slot_key
+from screenshotter.slots import is_quiet, resolve_timezone, slot_key
 
 
 def _utc(y, mo, d, h=0, mi=0) -> datetime:

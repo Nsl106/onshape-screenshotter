@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from progressor import frames
-from progressor.state import State, read_state, state_path, write_state
+from screenshotter import frames
+from screenshotter.state import State, read_state, state_path, write_state
 
 # --- state ----------------------------------------------------------------------
 

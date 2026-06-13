@@ -1,6 +1,6 @@
-# Onshape Progressor
+# Onshape Screenshotter
 
-Watch your robot come together. Onshape Progressor takes a picture of your team's
+Watch your robot come together. Onshape Screenshotter takes a picture of your team's
 Onshape part studio or assembly a few times a day, and saves it only when the CAD
 actually changed — building up a timelapse of your whole season. It runs entirely
 inside **your own** private copy of this repository on GitHub, for free.
@@ -176,7 +176,7 @@ pytest                    # run the test suite (no network needed)
 ruff check . && ruff format --check .
 
 # Try a capture locally without writing anything (needs the two env vars set):
-ONSHAPE_ACCESS_KEY=… ONSHAPE_SECRET_KEY=… python -m progressor.capture --dry-run
+ONSHAPE_ACCESS_KEY=… ONSHAPE_SECRET_KEY=… python -m screenshotter.capture --dry-run
 
 # The timelapse step needs ffmpeg on your PATH (preinstalled on GitHub runners):
 #   macOS: brew install ffmpeg   ·   Ubuntu: sudo apt install ffmpeg

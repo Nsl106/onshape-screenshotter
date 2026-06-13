@@ -1,6 +1,6 @@
 """Timelapse stitcher — combine committed frames into a video.
 
-Run as ``python -m progressor.timelapse``.
+Run as ``python -m screenshotter.timelapse``.
 
 Collects ``frames/<element_id>/*.png`` in chronological order (slot keys sort by
 time) and drives ffmpeg via subprocess to produce ``timelapse/<element_id>.mp4``
@@ -169,7 +169,7 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint. Returns 0 unless *every* target errored."""
     parser = argparse.ArgumentParser(
-        prog="progressor.timelapse",
+        prog="screenshotter.timelapse",
         description="Stitch committed frames into a timelapse video per target.",
     )
     parser.add_argument("--config", default="config.toml", help="path to config.toml")

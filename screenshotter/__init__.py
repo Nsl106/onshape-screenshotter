@@ -1,4 +1,4 @@
-"""Onshape Progressor — render an Onshape document on a schedule into timelapse frames.
+"""Onshape Screenshotter — render an Onshape document on a schedule into frames.
 
 The package is a small pipeline. Each module owns one stage:
 

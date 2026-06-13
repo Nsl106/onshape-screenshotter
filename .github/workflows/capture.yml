@@ -45,7 +45,7 @@ jobs:
         env:
           ONSHAPE_ACCESS_KEY: ${{ secrets.ONSHAPE_ACCESS_KEY }}
           ONSHAPE_SECRET_KEY: ${{ secrets.ONSHAPE_SECRET_KEY }}
-        run: python -m progressor.capture
+        run: python -m screenshotter.capture
 
       - name: Commit and push new frames
         run: |
@@ -68,7 +68,7 @@ jobs:
           # Nothing changed. Optional keepalive: if enabled and the last commit is
           # older than ~50 days, commit a no-op so GitHub doesn't disable this
           # scheduled workflow at the 60-day idle mark.
-          keepalive=$(python -c "from progressor.config import load_config; print('1' if load_config().settings.keepalive else '0')")
+          keepalive=$(python -c "from screenshotter.config import load_config; print('1' if load_config().settings.keepalive else '0')")
           if [ "$keepalive" = "1" ]; then
             last=$(git log -1 --format=%ct)
             now=$(date -u +%s)

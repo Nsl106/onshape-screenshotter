@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from progressor.config import ConfigError, parse_config, parse_onshape_url
+from screenshotter.config import ConfigError, parse_config, parse_onshape_url
 
 # A realistic Onshape workspace URL (24-hex IDs, as Onshape issues them).
 _URL = (

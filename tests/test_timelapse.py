@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from progressor import frames, timelapse
-from progressor.config import Config, Settings, Target
+from screenshotter import frames, timelapse
+from screenshotter.config import Config, Settings, Target
 
 
 def _config(fps=10, *targets: Target) -> Config:

@@ -6,8 +6,8 @@ import base64
 
 import pytest
 
-from progressor.config import Target
-from progressor.onshape import (
+from screenshotter.config import Target
+from screenshotter.onshape import (
     DEFAULT_BASE_URL,
     OnshapeAPIError,
     OnshapeAuthError,

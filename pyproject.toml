@@ -1,5 +1,5 @@
 [project]
-name = "onshape-progressor"
+name = "onshape-screenshotter"
 version = "0.1.0"
 description = "Render an Onshape part studio or assembly on a schedule and commit it as a timelapse frame."
 readme = "README.md"
@@ -23,7 +23,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["progressor*"]
+include = ["screenshotter*"]
 
 [tool.ruff]
 line-length = 88

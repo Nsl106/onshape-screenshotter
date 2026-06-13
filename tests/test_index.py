@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from progressor import frames, index
-from progressor.config import Target
-from progressor.state import State, state_path, write_state
+from screenshotter import frames, index
+from screenshotter.config import Target
+from screenshotter.state import State, state_path, write_state
 
 
 def _target(eid: str) -> Target:

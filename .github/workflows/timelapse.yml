@@ -41,9 +41,9 @@ jobs:
       - name: Stitch timelapse
         run: |
           if [ "${{ inputs.gif }}" = "true" ]; then
-            python -m progressor.timelapse --gif
+            python -m screenshotter.timelapse --gif
           else
-            python -m progressor.timelapse
+            python -m screenshotter.timelapse
           fi
 
       - name: Commit and push timelapse

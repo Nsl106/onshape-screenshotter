@@ -1,4 +1,4 @@
-"""Forward capture job — the scheduled entrypoint (``python -m progressor.capture``).
+"""Forward capture job — the scheduled entrypoint (``python -m screenshotter.capture``).
 
 Each run renders every configured target's current workspace state in a single API
 call, then decides locally whether to keep the frame: if the rendered image matches
@@ -164,7 +164,7 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint. Returns 0 unless *every* target errored."""
     parser = argparse.ArgumentParser(
-        prog="progressor.capture",
+        prog="screenshotter.capture",
         description="Render each configured Onshape target's current state and save "
         "it as a timelapse frame when the model has changed.",
     )

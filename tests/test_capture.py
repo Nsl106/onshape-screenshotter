@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from progressor import frames
-from progressor.capture import CAPTURED, ERROR, QUIET, SLOT_FILLED, UNCHANGED, run
-from progressor.config import Config, Settings, Target
-from progressor.onshape import ElementMetadata, OnshapeAPIError
-from progressor.state import State, read_state, state_path, write_state
+from screenshotter import frames
+from screenshotter.capture import CAPTURED, ERROR, QUIET, SLOT_FILLED, UNCHANGED, run
+from screenshotter.config import Config, Settings, Target
+from screenshotter.onshape import ElementMetadata, OnshapeAPIError
+from screenshotter.state import State, read_state, state_path, write_state
 
 
 def _utc(y, mo, d, h=0, mi=0):
