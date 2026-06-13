@@ -86,10 +86,25 @@ each option is explained inline in the file.
 
 ### 5. Turn on Actions
 
-Open the **Actions** tab in your repo and click the green button to enable
-workflows. The **Capture** job then wakes hourly and takes a screenshot at each of
-your `capture_hours` (default `[8, 12, 16, 20]`). That list is your API-budget dial
-— see [API budget](#api-budget) below.
+Open the **Actions** tab in your repo. If you see a banner *"Workflows aren't being
+run on this repository,"* click the green **"I understand my workflows, go ahead and
+enable them"** button. **If you don't see that banner and the workflows (Capture,
+Timelapse) are already listed in the left sidebar, you're done — GitHub enabled them
+for you, there's nothing to click.**
+
+The **Capture** job then wakes hourly and takes a screenshot at each of your
+`capture_hours` (default `[8, 12, 16, 20]`). That list is your API-budget dial — see
+[API budget](#api-budget) below.
+
+> ⏰ **`capture_hours` are in your `timezone` setting, which defaults to UTC.** So out
+> of the box, screenshots happen at 08:00 / 12:00 / 16:00 / 20:00 **UTC**. Set
+> `timezone = "America/New_York"` (or yours) in `config.toml` to make those your
+> local hours.
+>
+> **Testing it right now?** A manual **Run workflow** still obeys `capture_hours`, so
+> if the current hour isn't in your list it just logs `skipped (not a capture hour)`
+> and exits — that's working as designed, not an error. To force an immediate test,
+> temporarily add the current hour to `capture_hours`, run it, then change it back.
 
 > **Start early.** This tool records history *going forward* from the moment you
 > turn it on — it does not (and cannot, affordably) reconstruct the past, because
