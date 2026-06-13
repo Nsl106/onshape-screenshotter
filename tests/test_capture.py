@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from screenshotter import frames
-from screenshotter.capture import CAPTURED, ERROR, QUIET, SLOT_FILLED, UNCHANGED, run
+from screenshotter.capture import (
+    CAPTURED,
+    ERROR,
+    OFF_HOURS,
+    SLOT_FILLED,
+    UNCHANGED,
+    run,
+)
 from screenshotter.config import Config, Settings, Target
 from screenshotter.onshape import ElementMetadata, OnshapeAPIError
 from screenshotter.state import State, read_state, state_path, write_state
@@ -24,7 +31,7 @@ def _target(eid="E1", did="D1", wid="W1") -> Target:
     )
 
 
-def _config(*targets: Target, quiet=(0, 0), tz="UTC") -> Config:
+def _config(*targets: Target, capture_hours=(), tz="UTC") -> Config:
     settings = Settings(
         image_width=64,
         image_height=64,
@@ -32,8 +39,7 @@ def _config(*targets: Target, quiet=(0, 0), tz="UTC") -> Config:
         timelapse_fps=10,
         keepalive=True,
         timezone=tz,
-        quiet_hours_start=quiet[0],
-        quiet_hours_end=quiet[1],
+        capture_hours=tuple(capture_hours),
     )
     return Config(settings=settings, targets=targets or (_target(),))
 
@@ -143,21 +149,27 @@ def test_changed_but_slot_filled_skips(tmp_path) -> None:
     )
 
 
-def test_quiet_hours_skip_with_zero_calls(tmp_path) -> None:
+def test_off_capture_hour_skips_with_zero_calls(tmp_path) -> None:
     client = FakeClient()
-    # Quiet 3-9 UTC; run at 04:00 -> skipped, no render at all.
+    # Capture hours 8/12/16/20; run at 04:00 -> not a capture hour, no calls at all.
     [result] = run(
-        _config(quiet=(3, 9)), client, now=_utc(2024, 1, 5, 4), root=tmp_path
+        _config(capture_hours=(8, 12, 16, 20)),
+        client,
+        now=_utc(2024, 1, 5, 4),
+        root=tmp_path,
     )
-    assert result.status == QUIET
+    assert result.status == OFF_HOURS
     assert client.rendered == 0
     assert client.metadata_calls == 0
 
 
-def test_outside_quiet_hours_runs(tmp_path) -> None:
+def test_on_capture_hour_runs(tmp_path) -> None:
     client = FakeClient()
     [result] = run(
-        _config(quiet=(3, 9)), client, now=_utc(2024, 1, 5, 12), root=tmp_path
+        _config(capture_hours=(8, 12, 16, 20)),
+        client,
+        now=_utc(2024, 1, 5, 12),
+        root=tmp_path,
     )
     assert result.status == CAPTURED
 

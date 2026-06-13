@@ -1,12 +1,13 @@
 """Pure time/slot logic for the capture job. No I/O, no network — unit-testable.
 
-Provides the canonical slot key for an instant, plus the quiet-hours gate that lets
-the scheduled job skip runs (and spend zero API calls) during a window when the CAD
-won't be changing.
+Provides the canonical slot key for an instant, plus the capture-hours gate that
+lets the scheduled job decide whether the current hour is one the team asked to
+screenshot at (and otherwise skip, spending zero API calls).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -49,16 +50,15 @@ def resolve_timezone(name: str) -> tzinfo:
         raise ValueError(f"unknown timezone '{name}'") from exc
 
 
-def is_quiet(now: datetime, tz_name: str, start_hour: int, end_hour: int) -> bool:
-    """Return True if ``now`` falls in the configured quiet-hours window.
+def should_capture(now: datetime, tz_name: str, capture_hours: Iterable[int]) -> bool:
+    """Return True if ``now``'s local hour is one the team wants a screenshot at.
 
-    Hours are interpreted in ``tz_name`` local time, as ``[start_hour, end_hour)``.
-    A window that wraps midnight (``start_hour > end_hour``, e.g. 22→6) is handled.
-    ``start_hour == end_hour`` means the window is disabled (never quiet).
+    ``capture_hours`` is a set of local hours (0-23) interpreted in ``tz_name``. An
+    empty collection means "every scheduled run" (no hour filtering). The scheduled
+    workflow wakes hourly and calls this to decide whether to spend an API call.
     """
-    if start_hour == end_hour:
-        return False
+    hours = set(capture_hours)
+    if not hours:
+        return True
     local_hour = _to_utc(now).astimezone(resolve_timezone(tz_name)).hour
-    if start_hour < end_hour:
-        return start_hour <= local_hour < end_hour
-    return local_hour >= start_hour or local_hour < end_hour
+    return local_hour in hours

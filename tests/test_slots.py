@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from screenshotter.slots import is_quiet, resolve_timezone, slot_key
+from screenshotter.slots import resolve_timezone, should_capture, slot_key
 
 
 def _utc(y, mo, d, h=0, mi=0) -> datetime:
@@ -55,31 +55,24 @@ def test_resolve_bad_zone_raises() -> None:
         resolve_timezone("Mars/Olympus_Mons")
 
 
-# --- is_quiet -------------------------------------------------------------------
+# --- should_capture -------------------------------------------------------------
 
 
-def test_quiet_disabled_when_start_equals_end() -> None:
-    assert is_quiet(_utc(2024, 1, 5, 4), "UTC", 0, 0) is False
+def test_capture_only_at_listed_hours() -> None:
+    hours = [8, 12, 16, 20]
+    assert should_capture(_utc(2024, 1, 5, 12), "UTC", hours) is True
+    assert should_capture(_utc(2024, 1, 5, 8), "UTC", hours) is True
+    assert should_capture(_utc(2024, 1, 5, 13), "UTC", hours) is False
+    assert should_capture(_utc(2024, 1, 5, 0), "UTC", hours) is False
 
 
-def test_quiet_simple_window() -> None:
-    # Quiet 03:00-09:00 UTC.
-    assert is_quiet(_utc(2024, 1, 5, 3), "UTC", 3, 9) is True
-    assert is_quiet(_utc(2024, 1, 5, 8), "UTC", 3, 9) is True
-    assert is_quiet(_utc(2024, 1, 5, 9), "UTC", 3, 9) is False  # end exclusive
-    assert is_quiet(_utc(2024, 1, 5, 2), "UTC", 3, 9) is False
+def test_empty_capture_hours_means_every_run() -> None:
+    assert should_capture(_utc(2024, 1, 5, 3), "UTC", []) is True
+    assert should_capture(_utc(2024, 1, 5, 17), "UTC", ()) is True
 
 
-def test_quiet_window_wraps_midnight() -> None:
-    # Quiet 22:00-06:00.
-    assert is_quiet(_utc(2024, 1, 5, 23), "UTC", 22, 6) is True
-    assert is_quiet(_utc(2024, 1, 5, 2), "UTC", 22, 6) is True
-    assert is_quiet(_utc(2024, 1, 5, 6), "UTC", 22, 6) is False
-    assert is_quiet(_utc(2024, 1, 5, 12), "UTC", 22, 6) is False
-
-
-def test_quiet_respects_timezone() -> None:
-    # 08:00 UTC is 03:00 in New York; a 1-9 Eastern quiet window should be quiet.
-    assert is_quiet(_utc(2024, 1, 5, 8), "America/New_York", 1, 9) is True
-    # 16:00 UTC is 11:00 Eastern -> not quiet.
-    assert is_quiet(_utc(2024, 1, 5, 16), "America/New_York", 1, 9) is False
+def test_capture_hours_respect_timezone() -> None:
+    # 13:00 UTC is 08:00 in New York; an 08:00-Eastern capture hour should fire.
+    assert should_capture(_utc(2024, 1, 5, 13), "America/New_York", [8]) is True
+    # 12:00 UTC is 07:00 Eastern -> not a capture hour.
+    assert should_capture(_utc(2024, 1, 5, 12), "America/New_York", [8]) is False

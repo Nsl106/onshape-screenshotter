@@ -4,8 +4,8 @@ Each run renders every configured target's current workspace state in a single A
 call, then decides locally whether to keep the frame: if the rendered image matches
 the last one saved (same fingerprint), the CAD didn't change and nothing is written.
 So an unchanged run and a changed run both cost exactly one render call — the
-cheapest the tool can be against Onshape's tight annual quota. Runs inside the
-configured quiet-hours window are skipped before any API call at all.
+cheapest the tool can be against Onshape's tight annual quota. Runs whose hour
+isn't one of the configured capture hours are skipped before any API call at all.
 
 Targets are processed independently: one failing target never stops the others. Git
 commit/push is handled by the workflow, not here, so this script's only side effects
@@ -24,14 +24,14 @@ from pathlib import Path
 from . import frames, index
 from .config import Config, ConfigError, Target, load_config
 from .onshape import OnshapeAuthError, OnshapeClient, OnshapeError
-from .slots import is_quiet, slot_key
+from .slots import should_capture, slot_key
 from .state import State, read_state, state_path, write_state
 
 # Per-target outcomes, in the order they're reported on the one-line summary.
 CAPTURED = "captured"
 UNCHANGED = "unchanged"
 SLOT_FILLED = "skipped (slot filled)"
-QUIET = "skipped (quiet hours)"
+OFF_HOURS = "skipped (not a capture hour)"
 ERROR = "error"
 
 
@@ -122,19 +122,17 @@ def run(
 ) -> list[TargetResult]:
     """Process every target as of ``now`` and return per-target results.
 
-    If ``now`` falls in the configured quiet-hours window, every target is skipped
-    without any API call. Otherwise each target is isolated in its own try/except so
-    one failure can't abort the rest, and the README index is refreshed once at the
-    end (unless this is a dry run with no captures).
+    If ``now``'s local hour isn't one of the configured capture hours, every target
+    is skipped without any API call. Otherwise each target is isolated in its own
+    try/except so one failure can't abort the rest, and the README index is
+    refreshed once at the end (unless this is a dry run with no captures).
     """
     root = Path(root)
     now = now or datetime.now(UTC)
     settings = config.settings
 
-    if is_quiet(
-        now, settings.timezone, settings.quiet_hours_start, settings.quiet_hours_end
-    ):
-        return [TargetResult(t.element_id, QUIET) for t in config.targets]
+    if not should_capture(now, settings.timezone, settings.capture_hours):
+        return [TargetResult(t.element_id, OFF_HOURS) for t in config.targets]
 
     results: list[TargetResult] = []
     for target in config.targets:

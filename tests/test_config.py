@@ -78,8 +78,7 @@ def test_settings_defaults_applied_when_absent() -> None:
     assert cfg.settings.timelapse_fps == 10
     assert cfg.settings.keepalive is True
     assert cfg.settings.timezone == "UTC"
-    assert cfg.settings.quiet_hours_start == 0
-    assert cfg.settings.quiet_hours_end == 0
+    assert cfg.settings.capture_hours == (8, 12, 16, 20)
 
 
 def test_missing_url_raises() -> None:
@@ -153,27 +152,32 @@ def test_unknown_setting_raises() -> None:
         parse_config(data)
 
 
-def test_quiet_hours_and_timezone_parse() -> None:
+def test_capture_hours_and_timezone_parse() -> None:
     data = _valid_data()
-    data["settings"].update(
-        timezone="America/New_York", quiet_hours_start=1, quiet_hours_end=9
-    )
+    data["settings"].update(timezone="America/New_York", capture_hours=[20, 8, 8, 14])
     cfg = parse_config(data)
     assert cfg.settings.timezone == "America/New_York"
-    assert cfg.settings.quiet_hours_start == 1
-    assert cfg.settings.quiet_hours_end == 9
+    # Deduplicated and sorted.
+    assert cfg.settings.capture_hours == (8, 14, 20)
 
 
-def test_quiet_hour_zero_is_allowed() -> None:
+def test_empty_capture_hours_allowed() -> None:
     data = _valid_data()
-    data["settings"]["quiet_hours_start"] = 0
-    assert parse_config(data).settings.quiet_hours_start == 0
+    data["settings"]["capture_hours"] = []
+    assert parse_config(data).settings.capture_hours == ()
 
 
-def test_quiet_hour_out_of_range_raises() -> None:
+def test_capture_hour_out_of_range_raises() -> None:
     data = _valid_data()
-    data["settings"]["quiet_hours_end"] = 24
+    data["settings"]["capture_hours"] = [8, 24]
     with pytest.raises(ConfigError, match="between 0 and 23"):
+        parse_config(data)
+
+
+def test_capture_hours_not_a_list_raises() -> None:
+    data = _valid_data()
+    data["settings"]["capture_hours"] = 8
+    with pytest.raises(ConfigError, match="must be a list"):
         parse_config(data)
 
 

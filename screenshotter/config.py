@@ -74,10 +74,9 @@ class Settings:
         timelapse_fps: Frames per second for the stitched timelapse video.
         keepalive: Whether the workflow commits a monthly no-op to defeat the
             60-day scheduled-workflow auto-disable.
-        timezone: IANA timezone name the quiet-hours window is interpreted in.
-        quiet_hours_start: Local hour (0-23) the quiet window begins (inclusive).
-        quiet_hours_end: Local hour (0-23) the quiet window ends (exclusive). Equal
-            to ``quiet_hours_start`` means no quiet window.
+        timezone: IANA timezone name the capture hours are interpreted in.
+        capture_hours: Local hours (0-23) to take a screenshot at. One API call per
+            hour listed. Empty means capture on every scheduled run.
     """
 
     image_width: int
@@ -86,8 +85,7 @@ class Settings:
     timelapse_fps: int
     keepalive: bool
     timezone: str
-    quiet_hours_start: int
-    quiet_hours_end: int
+    capture_hours: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -107,8 +105,7 @@ _SETTINGS_DEFAULTS: dict[str, object] = {
     "timelapse_fps": 10,
     "keepalive": True,
     "timezone": "UTC",
-    "quiet_hours_start": 0,
-    "quiet_hours_end": 0,
+    "capture_hours": (8, 12, 16, 20),
 }
 
 
@@ -154,13 +151,21 @@ def _require_str(raw: dict, key: str, where: str) -> str:
 
 def _coerce_setting(key: str, value: object) -> object:
     """Validate and coerce a single ``[settings]`` value against its default's type."""
-    if key in ("quiet_hours_start", "quiet_hours_end"):
-        # An hour-of-day, so 0 is valid (unlike the positive-size settings below).
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ConfigError(f"[settings]: '{key}' must be a whole number 0-23.")
-        if not 0 <= value <= 23:
-            raise ConfigError(f"[settings]: '{key}' must be between 0 and 23.")
-        return value
+    if key == "capture_hours":
+        if not isinstance(value, list):
+            raise ConfigError(
+                "[settings]: 'capture_hours' must be a list of hours, e.g. "
+                "[8, 12, 16, 20]."
+            )
+        hours: list[int] = []
+        for h in value:
+            if isinstance(h, bool) or not isinstance(h, int) or not 0 <= h <= 23:
+                raise ConfigError(
+                    "[settings]: every entry in 'capture_hours' must be a whole "
+                    f"number between 0 and 23 (got {h!r})."
+                )
+            hours.append(h)
+        return tuple(sorted(set(hours)))
     if key == "timezone":
         if not isinstance(value, str) or not value.strip():
             raise ConfigError("[settings]: 'timezone' must be a non-empty string.")
