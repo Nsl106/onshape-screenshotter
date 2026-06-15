@@ -8,10 +8,11 @@ image_height = 2048           # px
 view = "isometric"            # a named view, or 12 space-separated numbers for a view matrix
 timelapse_fps = 10            # frames per second in the rendered timelapse video
 
-# When to take screenshots. List the local-time hours (0-23) you want a frame at;
-# the job takes one screenshot at each, and does nothing at every other hour. This
-# is your API budget dial: one Onshape call per hour listed (so the 4 below ≈ 1,460
-# calls/year — see the README "API budget"). An empty list [] pauses capture
+# When to take screenshots. List the local-time hours (0-23) you want a frame at.
+# Each hour is captured once a day, by the first scheduled run at or after it — so a
+# late or dropped GitHub run just catches up on the next one instead of missing it.
+# This is your API budget dial: one Onshape call per hour listed (so the 4 below ≈
+# 1,460 calls/year — see the README "API budget"). An empty list [] pauses capture
 # entirely (no screenshots, no API calls).
 timezone = "UTC"                    # IANA timezone the hours below are in (e.g. "America/New_York")
 capture_hours = [8, 12, 16, 20]     # local hours to screenshot at

@@ -92,19 +92,23 @@ enable them"** button. **If you don't see that banner and the workflows (Capture
 Timelapse) are already listed in the left sidebar, you're done — GitHub enabled them
 for you, there's nothing to click.**
 
-The **Capture** job then wakes hourly and takes a screenshot at each of your
-`capture_hours` (default `[8, 12, 16, 20]`). That list is your API-budget dial — see
-[API budget](#api-budget) below.
+The **Capture** job wakes roughly hourly and takes a screenshot at each of your
+`capture_hours` (default `[8, 12, 16, 20]`) — one per hour per day. GitHub's
+scheduler is best-effort and often runs late or skips an hour, so each capture hour
+is **caught up by the first run at or after it** rather than lost. That list is also
+your API-budget dial — see [API budget](#api-budget) below.
 
 > ⏰ **`capture_hours` are in your `timezone` setting, which defaults to UTC.** So out
-> of the box, screenshots happen at 08:00 / 12:00 / 16:00 / 20:00 **UTC**. Set
+> of the box, screenshots happen around 08:00 / 12:00 / 16:00 / 20:00 **UTC**. Set
 > `timezone = "America/New_York"` (or yours) in `config.toml` to make those your
-> local hours.
+> local hours. (A frame may be timestamped a bit after its hour if GitHub ran late —
+> that's the catch-up working.)
 >
-> **Testing it right now?** A manual **Run workflow** still obeys `capture_hours`, so
-> if the current hour isn't in your list it just logs `skipped (not a capture hour)`
-> and exits — that's working as designed, not an error. To force an immediate test,
-> temporarily add the current hour to `capture_hours`, run it, then change it back.
+> **Testing it right now?** A manual **Run workflow** only captures if a capture
+> hour has already passed today and hasn't been done yet; otherwise it logs
+> `skipped (no capture due)` / `skipped (capture hour already done)` and exits —
+> working as designed, not an error. To force an immediate test, temporarily add an
+> already-passed hour to `capture_hours`, run it, then change it back.
 
 > **Start early.** This tool records history *going forward* from the moment you
 > turn it on — it does not (and cannot, affordably) reconstruct the past, because
@@ -131,9 +135,10 @@ calls per _year_, per account:**
 | Professional | 5,000 / user | ~13.7 |
 | Enterprise | 10,000 / user | ~27 |
 
-You spend **one API call per capture hour, per document** — each fires a single
-render that decides locally whether the model changed. The hourly heartbeat costs
-*nothing* at hours not in your list (it exits before any Onshape call). So:
+You spend **one API call per capture hour, per document** — each capture hour, once
+a day, fires a single render that decides locally whether the model changed. The
+hourly heartbeat costs *nothing* on runs with no capture due (or one already done) —
+they exit before any Onshape call. So:
 
 ```
 calls/year  ≈  len(capture_hours) × 365 × (number of documents)
