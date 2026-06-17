@@ -198,9 +198,7 @@ ruff check . && ruff format --check .
 # Try a capture locally without writing anything (needs the two env vars set):
 ONSHAPE_ACCESS_KEY=… ONSHAPE_SECRET_KEY=… python -m screenshotter.capture --dry-run
 
-# The timelapse step needs ffmpeg on your PATH (preinstalled on GitHub runners):
-#   macOS: brew install ffmpeg   ·   Ubuntu: sudo apt install ffmpeg
+# Local timelapse needs ffmpeg on your PATH (the Timelapse workflow installs it
+# automatically on the runner): macOS: brew install ffmpeg · Ubuntu: sudo apt install ffmpeg
+python -m screenshotter.timelapse        # stitches frames/ into timelapse/
 ```
-
-`--at <ISO-8601>` on the capture job captures a specific past hour, handy for
-filling a gap by hand.
